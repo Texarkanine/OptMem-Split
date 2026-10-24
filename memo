@@ -159,8 +159,10 @@ def path_slug(p, path=os.path):
 
     Unix: /home/foo → path/home/foo. Windows: C:\\foo → path\\c\\foo.
     Drive letters are not separators; joining an absolute path as a component
-    would throw away the optmem prefix. Split the drive, then join parts."""
-    p = path.normcase(path.abspath(p))
+    would throw away the optmem prefix. Split the drive, then join parts.
+    Resolve symlinks, including Windows junctions, first, so two spellings of
+    one directory share one memory."""
+    p = path.normcase(path.realpath(p))
     drive, rest = path.splitdrive(p)
     bits = []
     if drive.endswith(":"):

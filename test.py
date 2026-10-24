@@ -681,6 +681,50 @@ posix_here = os.path.normcase(os.path.abspath("/tmp/optmem-scope-posix"))
 check(cli.path_slug(posix_here) == os.path.join("path", *posix_here.strip(os.sep).split(os.sep)),
       "POSIX path-local slug changed: " + cli.path_slug(posix_here))
 
+# One directory, one path-local memory, however the path was spelled.
+# link → mid → the directory, and a link that is not the last component.
+link_base = tempfile.mkdtemp(prefix="optmem-link-")
+real_dir = os.path.join(link_base, "optmem-real-dir")
+os.mkdir(real_dir)
+mid = os.path.join(link_base, "optmem-mid-link")
+outer = os.path.join(link_base, "optmem-outer-link")
+os.symlink("optmem-real-dir", mid)
+os.symlink("optmem-mid-link", outer)
+os.mkdir(os.path.join(real_dir, "leaf"))
+check(cli.path_slug(outer) == cli.path_slug(real_dir),
+      "a symlink chain forked the path-local memory: " + cli.path_slug(outer))
+check(cli.path_slug(os.path.join(mid, "leaf"))
+      == cli.path_slug(os.path.join(real_dir, "leaf")),
+      "a link in the middle of the path forked the memory: "
+      + cli.path_slug(os.path.join(mid, "leaf")))
+check("optmem-outer-link" not in cli.path_slug(outer).split(os.sep)
+      and "optmem-mid-link" not in cli.path_slug(outer).split(os.sep),
+      "a symlink chain slugged to the link name: " + cli.path_slug(outer))
+shutil.rmtree(link_base)
+
+
+class _JunctionPaths:
+    """ntpath, except realpath follows one junction. Off Windows, ntpath.realpath
+    is abspath, so a junction cannot be shown with a real path string."""
+
+    sep = ntpath.sep
+    normcase = staticmethod(ntpath.normcase)
+    abspath = staticmethod(ntpath.abspath)
+    splitdrive = staticmethod(ntpath.splitdrive)
+    join = staticmethod(ntpath.join)
+
+    @staticmethod
+    def realpath(p):
+        return ntpath.abspath(p).replace(r"\via-junction\proj", r"\real-dir\proj")
+
+
+junction = r"C:\work\via-junction\proj"
+junction_target = r"C:\work\real-dir\proj"
+check(cli.path_slug(junction, path=_JunctionPaths)
+      == cli.path_slug(junction_target, path=_JunctionPaths),
+      "a Windows junction forked the path-local memory: "
+      + cli.path_slug(junction, path=_JunctionPaths))
+
 win_origin = r"C:\Users\Austin\src\widget.git"
 check(cli.repo_slug(win_origin, path=ntpath)
       == ntpath.join("repo", "src", "widget"),
