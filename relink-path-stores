@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""Move path-local stores onto the resolved directory.
+
+The default prints each store that would move and writes nothing.
+--move performs those moves. A store stays where it is when the resolved
+directory is missing, or when a store is already at the destination.
+Nothing is overwritten.
+
+Run this on the machine that holds the stores. Another machine cannot
+resolve those symlinks or junctions.
+"""
+
+import os
+import sys
+from importlib.machinery import SourceFileLoader
+
+USAGE = """\
+Usage: relink-path-stores [--move]
+
+Show path-local stores whose directory resolves to a different path.
+The default writes nothing. --move moves those stores.
+A store stays in place when the resolved directory is missing, or when
+another store is already at the destination.
+"""
+
+
+def filesystem_path(parts, path=os.path):
+    """Rebuild the directory path_slug split apart.
+
+    POSIX parts (home, foo) become /home/foo. A Windows drive is the first
+    one-letter part: (c, work) becomes c:\\work. Anything else on Windows is
+    a UNC path: (server, share, proj) becomes \\\\server\\share\\proj.
+    """
+    if getattr(path, "__name__", "") == "ntpath":
+        if parts and len(parts[0]) == 1:
+            built = parts[0] + ":" + path.sep
+            if len(parts) > 1:
+                built += path.join(*parts[1:])
+            return path.normpath(built)
+        return path.normpath((path.sep * 2) + path.join(*parts))
+    return path.join(path.sep, *parts)
+
+
+def optmem_root():
+    root = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    return os.path.join(root, "optmem")
+
+
+def find_stores(path_root):
+    stores = []
+    if not os.path.isdir(path_root):
+        return stores
+    for dirpath, _dirnames, filenames in os.walk(path_root):
+        if "LOG.txt" in filenames:
+            stores.append(dirpath)
+    stores.sort()
+    return stores
+
+
+def same_place(a, b):
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def classify(optmem, slug_of):
+    """Return (moves, leaves).
+
+    moves are (store, dest, spelled, resolved). leaves are (store, reason).
+    Two stores that resolve to one destination: the first, in path order,
+    is the move. The other stays.
+    """
+    path_root = os.path.join(optmem, "path")
+    moves, leaves, claimed = [], [], set()
+    for store in find_stores(path_root):
+        rel = os.path.relpath(store, path_root)
+        if rel in (os.curdir, ""):
+            continue
+        parts = [p for p in rel.split(os.sep) if p]
+        spelled = filesystem_path(parts)
+        dest = os.path.join(optmem, slug_of(spelled))
+        if same_place(store, dest):
+            continue
+        resolved = os.path.realpath(spelled)
+        if not os.path.isdir(resolved):
+            leaves.append((store, "resolved directory does not exist: " + resolved))
+            continue
+        key = os.path.normcase(os.path.abspath(dest))
+        if os.path.lexists(dest):
+            leaves.append((store, "destination already has a store: " + dest))
+            continue
+        if key in claimed:
+            leaves.append((store, "another store resolves to this destination: " + dest))
+            continue
+        if key.startswith(os.path.normcase(os.path.abspath(store)) + os.sep):
+            leaves.append((store, "destination is inside this store: " + dest))
+            continue
+        claimed.add(key)
+        moves.append((store, dest, spelled, resolved))
+    return moves, leaves
+
+
+def load_path_slug():
+    here = os.path.dirname(os.path.realpath(__file__))
+    memo_path = os.path.join(here, "memo")
+    if not os.path.isfile(memo_path):
+        sys.stderr.write("memo is not next to relink-path-stores: %s\n" % memo_path)
+        return None
+    mod = SourceFileLoader("optmem_memo", memo_path).load_module()
+    return mod.path_slug
+
+
+def print_moves(moves, verb):
+    for store, dest, spelled, resolved in moves:
+        print(verb)
+        print("  " + store)
+        print("  -> " + dest)
+        print("  %s resolves to %s" % (spelled, resolved))
+
+
+def print_leaves(leaves):
+    for store, reason in leaves:
+        print("left in place")
+        print("  " + store)
+        print("  " + reason)
+
+
+def perform(moves):
+    done, skipped = [], []
+    failed = False
+    for item in moves:
+        store, dest, spelled, resolved = item
+        if os.path.lexists(dest):
+            skipped.append((store, "destination already has a store: " + dest))
+            failed = True
+            continue
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        os.rename(store, dest)
+        done.append(item)
+    return done, skipped, failed
+
+
+def main(argv):
+    if any(a in ("-h", "--help") for a in argv):
+        sys.stdout.write(USAGE)
+        return 0
+    if any(a != "--move" for a in argv):
+        sys.stderr.write(USAGE)
+        return 2
+    slug_of = load_path_slug()
+    if slug_of is None:
+        return 1
+    moves, leaves = classify(optmem_root(), slug_of)
+    if "--move" not in argv:
+        if not moves and not leaves:
+            print("Nothing to move.")
+            return 0
+        print_moves(moves, "would move")
+        print_leaves(leaves)
+        return 0
+    done, skipped, failed = perform(moves)
+    if not done and not leaves and not skipped:
+        print("Nothing to move.")
+        return 0
+    print_moves(done, "moved")
+    print_leaves(leaves + skipped)
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

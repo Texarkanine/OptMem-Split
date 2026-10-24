@@ -59,7 +59,10 @@ use `--global` only for what would still be true tomorrow in a repository you ha
 
 $XDG_DATA_HOME/optmem/   (default: ~/.local/share/optmem)
   repo/<owner>/<repo>/   one memory per project, same layout as memory/
+  path/<directory>/      same layout, for a directory with no origin
 ```
+
+A directory and a symlink to that directory share one store. The key is the resolved path. A store created before this change still uses the symlink spelling. It remains on disk. `relink-path-stores` is installed next to `memo`. Run it to see each store it would move. Add `--move` to move them. It does not replace a store that is already at the destination. Run it on the machine that holds the stores.
 
 ```sh
 memo config                  # show the sizes
