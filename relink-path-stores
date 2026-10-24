@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Move path-local stores onto the resolved directory.
 
-The default prints each store that would move and writes nothing.
---move performs those moves. A store stays where it is when the resolved
-directory is missing, or when a store is already at the destination.
-Nothing is overwritten.
+On Windows, the current directory can keep a symlink, a junction, or a
+substituted drive. A store created under that spelling now looks empty,
+because the key is the resolved directory. On Linux and macOS the kernel
+path is already physical, so an existing store is already on that key.
 
-Run this on the machine that holds the stores. Another machine cannot
-resolve those symlinks or junctions.
+This script finds a store that would move. A normal run writes nothing.
+`--move` moves the stores it lists. If a run shows nothing, there is
+nothing to move.
 """
 
 import os
@@ -17,10 +18,16 @@ from importlib.machinery import SourceFileLoader
 USAGE = """\
 Usage: relink-path-stores [--move]
 
-Show path-local stores whose directory resolves to a different path.
-The default writes nothing. --move moves those stores.
-A store stays in place when the resolved directory is missing, or when
-another store is already at the destination.
+Move path-local stores onto the resolved directory.
+
+On Windows, the current directory can keep a symlink, a junction, or a
+substituted drive. A store created under that spelling now looks empty,
+because the key is the resolved directory. On Linux and macOS the kernel
+path is already physical, so an existing store is already on that key.
+
+This script finds a store that would move. A normal run writes nothing.
+`--move` moves the stores it lists. If a run shows nothing, there is
+nothing to move.
 """
 
 
@@ -109,11 +116,10 @@ def load_path_slug():
 
 
 def print_moves(moves, verb):
-    for store, dest, spelled, resolved in moves:
+    for store, dest, _spelled, _resolved in moves:
         print(verb)
         print("  " + store)
         print("  -> " + dest)
-        print("  %s resolves to %s" % (spelled, resolved))
 
 
 def print_leaves(leaves):

@@ -826,6 +826,8 @@ kept_repo = os.path.join(relink_xdg, "optmem", "repo", "acme", "widget", "LOG.tx
 dry = run_relink(relink_xdg)
 check(dry.returncode == 0, "dry run failed: " + dry.stderr)
 check("would move" in dry.stdout, "dry run did not show the move: " + dry.stdout)
+check(dry.stdout.count("link-name") == 1,
+      "the symlink spelling was printed twice: " + dry.stdout)
 check("from-the-link\n" == open(os.path.join(old_store, "LOG.txt")).read(),
       "dry run rewrote the store")
 check(not os.path.exists(os.path.join(relink_xdg, "optmem", cli.path_slug(real), "LOG.txt")),

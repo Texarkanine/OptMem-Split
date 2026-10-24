@@ -62,7 +62,7 @@ $XDG_DATA_HOME/optmem/   (default: ~/.local/share/optmem)
   path/<directory>/      same layout, for a directory with no origin
 ```
 
-A directory and a symlink to that directory share one store. The key is the resolved path. A store created before this change still uses the symlink spelling. That store remains on disk. This repository contains `relink-path-stores`. On the machine that holds the stores, from a checkout, run `./relink-path-stores`. The command shows each store it would move. Add `--move` to move them. The script does not replace a store that is already at the destination.
+A directory with no origin remote is keyed by its path. On Linux and macOS that path is already physical after `cd`, so this does not change an existing store. On Windows the current directory can still name a symlink, a junction, or a substituted drive, and the key is now the resolved directory. A store under the old spelling stays on disk. This repository contains `relink-path-stores` for that Windows case. From a checkout, on the machine that holds the stores, run `./relink-path-stores`. It shows each store it would move. Add `--move` to move them. It does not replace a store that is already at the destination.
 
 ```sh
 memo config                  # show the sizes
