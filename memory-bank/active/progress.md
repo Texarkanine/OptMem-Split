@@ -24,3 +24,17 @@ Resolve symbolic links, including Windows junctions, before a path-local memory 
     - Use `path.realpath` rather than a separate link walker. On Windows that call resolves junctions. Off Windows `ntpath.realpath` is `abspath`, so the junction test supplies its own `realpath`.
 * Insights
     - `scope_dir` needed no change. It already passes the checkout root or `os.getcwd()` into `path_slug`.
+
+## 2026-10-24 - QA - COMPLETE
+
+* Work completed
+    - Reviewed `path_slug` and the new tests against the brief. No implementation edits.
+    - Result: PASS
+    - Reconciled persistent files. `systemPatterns.md` now states that links are resolved before the path fallback is encoded.
+* Decisions made
+    - Nothing in the diff has to change before acceptance. Advisories stay as notes.
+    - An existing path-local store keyed by an unresolved symlink spelling is not migrated. The brief does not ask for that.
+* Insights
+    - `path.realpath` before `splitdrive` is the whole production change. `scope_dir` already feeds it the checkout root or `os.getcwd()`.
+    - Off Windows, `ntpath.realpath` is `abspath`, so the junction case is a path double.
+    - Product context and tech context needed no change. The path-layer contract belongs with the existing path-fallback rule.

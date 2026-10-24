@@ -1,0 +1,12 @@
+PASS
+
+Reviewed `path_slug` in `memo` and the new checks in `test.py` against the path-slug-symlinks brief. The implementation is acceptable as-is.
+
+KISS: `path.abspath` became `path.realpath` before `splitdrive`. No extra walker.
+DRY: the junction case uses the existing `path=` seam. `_JunctionPaths` only replaces `realpath`.
+YAGNI: `_JunctionPaths.abspath` is unused. It does not change the slug.
+Completeness: a symlink chain, a link that is not the last component, and a junction spelling are tested. `repo_slug` is unchanged. `scope_dir` still passes the checkout root or `os.getcwd()` into `path_slug`, which now resolves both.
+Regression: drive-letter shaping is the same code as before. `pretty` still keeps symlinks in printed commands.
+Integrity: no placeholders, debug prints, or TODOs.
+Documentation: the `path_slug` docstring records resolve-then-split. `systemPatterns.md` still describes the path fallback correctly.
+Advisory: a path-local store already keyed by an unresolved symlink spelling is not moved. The brief does not ask for a migration.

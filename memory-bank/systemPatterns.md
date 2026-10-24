@@ -16,4 +16,4 @@ Every `Run:` line is an order the agent must be able to execute as printed. The 
 
 ## Origin is the project identity
 
-HTTPS, SSH, and host aliases for the same `owner/repo` must resolve to one directory. An empty or missing remote is a different identity (path fallback), not a global store. Encode that fallback as relative parts under `path/` (`path_slug`); never `join` an absolute filesystem path as a component, or Windows drive letters throw the store out of `optmem`.
+HTTPS, SSH, and host aliases for the same `owner/repo` must resolve to one directory. An empty or missing remote is a different identity (path fallback), not a global store. Resolve symbolic links, including Windows junctions, before encoding that fallback as relative parts under `path/` (`path_slug`). Never `join` an absolute filesystem path as a component, or Windows drive letters throw the store out of `optmem`.
