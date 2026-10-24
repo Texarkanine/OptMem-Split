@@ -59,7 +59,10 @@ use `--global` only for what would still be true tomorrow in a repository you ha
 
 $XDG_DATA_HOME/optmem/   (default: ~/.local/share/optmem)
   repo/<owner>/<repo>/   one memory per project, same layout as memory/
+  path/<directory>/      same layout, for a directory with no origin
 ```
+
+A directory with no origin remote is keyed by its path. On Linux and macOS that path is already physical after `cd`, so this does not change an existing store. On Windows the current directory can still name a symlink, a junction, or a substituted drive, and the key is now the resolved directory. A store under the old spelling stays on disk and looks empty. This repository contains `relink-path-stores` for that Windows case. The installer does not copy it. From a checkout of this release, on the machine that holds the stores, run it before the next `memo` command: `python relink-path-stores`, then `python relink-path-stores --move`. The first command writes nothing and shows each store it would move. The script does not replace a store that is already at the destination. If a `memo` command has already created an empty store at the resolved key, remove that destination directory (not the old store) and run the script again. If the new store has memories, leave both and move the lines by hand.
 
 ```sh
 memo config                  # show the sizes

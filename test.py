@@ -681,6 +681,50 @@ posix_here = os.path.normcase(os.path.abspath("/tmp/optmem-scope-posix"))
 check(cli.path_slug(posix_here) == os.path.join("path", *posix_here.strip(os.sep).split(os.sep)),
       "POSIX path-local slug changed: " + cli.path_slug(posix_here))
 
+# One directory, one path-local memory, however the path was spelled.
+# link → mid → the directory, and a link that is not the last component.
+link_base = tempfile.mkdtemp(prefix="optmem-link-")
+real_dir = os.path.join(link_base, "optmem-real-dir")
+os.mkdir(real_dir)
+mid = os.path.join(link_base, "optmem-mid-link")
+outer = os.path.join(link_base, "optmem-outer-link")
+os.symlink("optmem-real-dir", mid)
+os.symlink("optmem-mid-link", outer)
+os.mkdir(os.path.join(real_dir, "leaf"))
+check(cli.path_slug(outer) == cli.path_slug(real_dir),
+      "a symlink chain forked the path-local memory: " + cli.path_slug(outer))
+check(cli.path_slug(os.path.join(mid, "leaf"))
+      == cli.path_slug(os.path.join(real_dir, "leaf")),
+      "a link in the middle of the path forked the memory: "
+      + cli.path_slug(os.path.join(mid, "leaf")))
+check("optmem-outer-link" not in cli.path_slug(outer).split(os.sep)
+      and "optmem-mid-link" not in cli.path_slug(outer).split(os.sep),
+      "a symlink chain slugged to the link name: " + cli.path_slug(outer))
+shutil.rmtree(link_base)
+
+
+class _JunctionPaths:
+    """ntpath, except realpath follows one junction. Off Windows, ntpath.realpath
+    is abspath, so a junction cannot be shown with a real path string."""
+
+    sep = ntpath.sep
+    normcase = staticmethod(ntpath.normcase)
+    abspath = staticmethod(ntpath.abspath)
+    splitdrive = staticmethod(ntpath.splitdrive)
+    join = staticmethod(ntpath.join)
+
+    @staticmethod
+    def realpath(p):
+        return ntpath.abspath(p).replace(r"\via-junction\proj", r"\real-dir\proj")
+
+
+junction = r"C:\work\via-junction\proj"
+junction_target = r"C:\work\real-dir\proj"
+check(cli.path_slug(junction, path=_JunctionPaths)
+      == cli.path_slug(junction_target, path=_JunctionPaths),
+      "a Windows junction forked the path-local memory: "
+      + cli.path_slug(junction, path=_JunctionPaths))
+
 win_origin = r"C:\Users\Austin\src\widget.git"
 check(cli.repo_slug(win_origin, path=ntpath)
       == ntpath.join("repo", "src", "widget"),
@@ -725,5 +769,132 @@ shutil.rmtree(repo)
 shutil.rmtree(xdg)
 shutil.rmtree(d2)
 shutil.rmtree(d)
+
+# A path-local store keyed by a symlink spelling is still on disk after
+# path_slug starts resolving links. The relink script shows the move and
+# writes only with --move. It must not overwrite a store, and it must not
+# move a store whose resolved path is missing.
+
+
+def unresolved_slug(p):
+    """The path/ key from before realpath: abspath, then the same split."""
+    p = os.path.normcase(os.path.abspath(p))
+    return os.path.join("path", *[b for b in p.split(os.sep) if b])
+
+
+def plant_store(xdg_root, slug, text):
+    store = os.path.join(xdg_root, "optmem", slug)
+    os.makedirs(os.path.join(store, "TREE"))
+    with open(os.path.join(store, "LOG.txt"), "w") as fh:
+        fh.write(text)
+    return store
+
+
+def run_relink(xdg_root, *args):
+    return subprocess.run([sys.executable, os.path.join(HERE, "relink-path-stores"), *args],
+                          capture_output=True, text=True,
+                          env=dict(os.environ, XDG_DATA_HOME=xdg_root))
+
+
+relink = SourceFileLoader("relink_path_stores",
+                           os.path.join(HERE, "relink-path-stores")).load_module()
+win_slug = cli.path_slug(r"C:\work\real-dir", path=ntpath)
+win_back = relink.filesystem_path(win_slug.split(ntpath.sep)[1:], ntpath)
+check(cli.path_slug(win_back, path=ntpath) == win_slug,
+      "a Windows path/ key did not rebuild the same path: " + win_back)
+unc_slug = cli.path_slug(r"\\server\share\proj", path=ntpath)
+unc_back = relink.filesystem_path(unc_slug.split(ntpath.sep)[1:], ntpath)
+check(cli.path_slug(unc_back, path=ntpath) == unc_slug,
+      "a UNC path/ key did not rebuild the same path: " + unc_back)
+
+fs = tempfile.mkdtemp(prefix="optmem-relink-fs-")
+real = os.path.join(fs, "real-dir")
+os.mkdir(real)
+link = os.path.join(fs, "link-name")
+os.symlink("real-dir", link)
+other = os.path.join(fs, "other-link")
+os.symlink("real-dir", other)
+dangling = os.path.join(fs, "dangling-link")
+os.symlink(os.path.join(fs, "missing-target"), dangling)
+plain = os.path.join(fs, "plain-dir")
+os.mkdir(plain)
+
+relink_xdg = tempfile.mkdtemp(prefix="optmem-relink-xdg-")
+old_store = plant_store(relink_xdg, unresolved_slug(link), "from-the-link\n")
+plant_store(relink_xdg, os.path.join("repo", "acme", "widget"), "repo-kept\n")
+kept_repo = os.path.join(relink_xdg, "optmem", "repo", "acme", "widget", "LOG.txt")
+dry = run_relink(relink_xdg)
+check(dry.returncode == 0, "dry run failed: " + dry.stderr)
+check("would move" in dry.stdout, "dry run did not show the move: " + dry.stdout)
+check(dry.stdout.count("link-name") == 1,
+      "the symlink spelling was printed twice: " + dry.stdout)
+check("from-the-link\n" == open(os.path.join(old_store, "LOG.txt")).read(),
+      "dry run rewrote the store")
+check(not os.path.exists(os.path.join(relink_xdg, "optmem", cli.path_slug(real), "LOG.txt")),
+      "dry run created the resolved store")
+check("repo-kept" not in dry.stdout, "dry run listed a repo store: " + dry.stdout)
+
+moved = run_relink(relink_xdg, "--move")
+new_log = os.path.join(relink_xdg, "optmem", cli.path_slug(link), "LOG.txt")
+check(moved.returncode == 0, "move failed: " + moved.stderr)
+check(os.path.exists(new_log) and open(new_log).read() == "from-the-link\n",
+      "the link store did not arrive on the resolved path")
+check(not os.path.exists(os.path.join(old_store, "LOG.txt")),
+      "the old spelling still holds the log")
+check(open(kept_repo).read() == "repo-kept\n", "a repo store was touched")
+
+clash_xdg = tempfile.mkdtemp(prefix="optmem-relink-clash-")
+plant_store(clash_xdg, unresolved_slug(link), "from-the-link\n")
+plant_store(clash_xdg, unresolved_slug(other), "from-the-other\n")
+plant_store(clash_xdg, cli.path_slug(real), "already-there\n")
+clash = run_relink(clash_xdg, "--move")
+check(clash.returncode == 0, "clash move failed: " + clash.stderr)
+check("left in place" in clash.stdout, "a clash was not reported: " + clash.stdout)
+check(open(os.path.join(clash_xdg, "optmem", cli.path_slug(real), "LOG.txt")).read()
+      == "already-there\n", "the resolved store was overwritten")
+check(open(os.path.join(clash_xdg, "optmem", unresolved_slug(link), "LOG.txt")).read()
+      == "from-the-link\n", "the link store was removed during a clash")
+check(open(os.path.join(clash_xdg, "optmem", unresolved_slug(other), "LOG.txt")).read()
+      == "from-the-other\n", "the other link store was removed during a clash")
+
+both_xdg = tempfile.mkdtemp(prefix="optmem-relink-both-")
+plant_store(both_xdg, unresolved_slug(link), "from-the-link\n")
+plant_store(both_xdg, unresolved_slug(other), "from-the-other\n")
+both = run_relink(both_xdg, "--move")
+check(both.returncode == 0, "two spellings failed: " + both.stderr)
+arrived = open(os.path.join(both_xdg, "optmem", cli.path_slug(real), "LOG.txt")).read()
+check(arrived in ("from-the-link\n", "from-the-other\n"),
+      "neither spelling arrived: " + arrived)
+survivors = []
+for spelling in (link, other):
+    log = os.path.join(both_xdg, "optmem", unresolved_slug(spelling), "LOG.txt")
+    if os.path.exists(log):
+        survivors.append(open(log).read())
+check(len(survivors) == 1 and survivors[0] != arrived,
+      "one spelling was lost: arrived %r survivors %r" % (arrived, survivors))
+
+dangling_xdg = tempfile.mkdtemp(prefix="optmem-relink-dangling-")
+plant_store(dangling_xdg, unresolved_slug(dangling), "still-here\n")
+dangling_run = run_relink(dangling_xdg, "--move")
+check(dangling_run.returncode == 0, "dangling move failed: " + dangling_run.stderr)
+check(open(os.path.join(dangling_xdg, "optmem", unresolved_slug(dangling), "LOG.txt")).read()
+      == "still-here\n", "a dangling link store was moved")
+check("left in place" in dangling_run.stdout,
+      "a dangling link was not reported: " + dangling_run.stdout)
+
+plain_xdg = tempfile.mkdtemp(prefix="optmem-relink-plain-")
+plant_store(plain_xdg, cli.path_slug(plain), "plain\n")
+plain_run = run_relink(plain_xdg)
+check(plain_run.returncode == 0 and plain_run.stdout.strip() == "Nothing to move.",
+      "a resolved store was listed: " + plain_run.stdout)
+
+bad = run_relink(plain_xdg, "--apply")
+check(bad.returncode == 2, "an unknown flag was accepted")
+check(open(os.path.join(plain_xdg, "optmem", cli.path_slug(plain), "LOG.txt")).read()
+      == "plain\n", "an unknown flag wrote the store")
+
+for leftover in (fs, relink_xdg, clash_xdg, both_xdg, dangling_xdg, plain_xdg):
+    shutil.rmtree(leftover)
+
 print("\n%d passed, %d failed" % (ok, fail))
 sys.exit(1 if fail else 0)
