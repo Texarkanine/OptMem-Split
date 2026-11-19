@@ -16,3 +16,16 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Insights
     - `config(d)` in `memo` currently only writes overridden knobs to module globals without restoring defaults first, so a global-store override during `wake_both` leaks into the subsequent project-store wake.
     - Removing the `cli.SCOPE_GLOBAL` mutation checks at lines 814–823 requires adding a CLI-surface test for `--global` when `MEMORY_DIR` is unset (falling back to `$HOME/.optmem/memory`), which the subprocess tests did not previously cover.
+
+## 2026-11-19 - PLAN - COMPLETE
+
+* Work completed
+    - Wrote full Level 2 TDD implementation plan in `memory-bank/active/tasks.md` covering `memo` (`main(argv=None)` + `config(d)` knob reset), all 14 branch-touched SLOBAC findings in `test.py` (#5, #8, #9, #12–#22), and filing a GitHub issue on `Texarkanine/OptMem-Split` for #1 + #3.
+    - Designed before/after capability regrouping for branch-added tests in `test.py`.
+    - Completed Challenges & Mitigations and Pre-Mortem (including explicit `-R Texarkanine/OptMem-Split` target for `gh issue create` and exact reproduction setup for the `wake_both` config-leak test).
+* Decisions made
+    - Keep `test.py` single-file on this branch and track splitting (#1 + #3) in a new GitHub issue on `Texarkanine/OptMem-Split`.
+    - Fix `config(d)` default-reset in `memo` alongside `main(argv=None)` so both `run()` isolation and `wake_both` global-to-project config isolation are clean without extra abstractions.
+* Insights
+    - `gh` defaults to `upstream` (`VictorTaelin/OptMem`) in this checkout because of remote configuration, so `-R Texarkanine/OptMem-Split` is required when creating the issue.
+
