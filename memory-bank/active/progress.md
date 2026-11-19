@@ -52,3 +52,14 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
     - Parsed active (non-comment) `config` lines via `active_config()` alongside `memo config` stdout to handle `write_config`'s `"  WAKE_LINES   = 40     # ..."` padding (Preflight Advisory 1).
 * Insights
     - TDD red run caught the real `wake_both` config-leak bug: `WAKE_LINES=2` in the global store collapsed a 4-memory project store into `#0-1`/`#2-3` during bare `wake` until `config(d)` restored defaults first.
+
+## 2026-11-19 - QA - COMPLETE
+
+* Work completed
+    - Reviewed `memo`, `test.py` (`f7c8123..HEAD` and branch diff against `main.split`), GitHub issue https://github.com/Texarkanine/OptMem-Split/issues/8, and project docs (`README.md`, `WINDOWS.md`, `memory-bank/*.md`) against the implementation plan and SLOBAC audit findings.
+    - Executed full `python3 test.py` verification (`115709 passed, 0 failed`) and confirmed all 14 branch-touched SLOBAC findings (#5, #8, #9, #12–#22) were addressed without modifying untouched pre-existing tests (#2, #4, #6, #7, #10, #11).
+    - Recorded QA result `FAIL` in `memory-bank/active/.qa-validation-status` and logged findings in `memory-bank/active/tasks.md`.
+* Decisions made
+    - Failed QA for targeted Build rework on two findings in the new `test_store_routing` re-entrancy block: (1) `r3` calls `zoom 1048576-2097151`, which prints `wake_cmd()` instead of `ME` and therefore vacuously passes even if `ME` reset is broken; (2) nested `call_main` duplicates `run()` verbatim while skipping `check_printed_commands()`.
+* Insights
+    - `cmd_zoom`'s out-of-range error uses `wake_cmd()` (`memo:914`), whereas its missing-argument usage error (`memo:908-909`) uses `ME`; switching the re-entrancy check to `run("zoom", store=s2)` fixes both the vacuous `ME` oracle and the duplicate `call_main` helper in one step.

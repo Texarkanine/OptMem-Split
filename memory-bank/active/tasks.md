@@ -100,6 +100,14 @@ No new technology - validation not required.
 - **`memo` `main(argv=None)` breaks an in-process caller or `test.py` `run()` assumption**: If any pre-existing test in `test.py` sets a knob or relies on `sys.argv` when calling `run()`, removing `sys.argv` mutation might change behavior. Plan response: inspect every `run(...)` call site before editing `run()`; `main(argv=None)` preserves `sys.argv[1:]` when `argv is None` so direct CLI execution is 100% unchanged.
 - **Global-config-leak test in `wake_both` doesn't reproduce with `WAKE_LINES` on 4 notes**: Because `cover(4, 2)` produces 2 lines (e.g. `#0-1` + `#2-3`) only when summaries exist; without summaries, `cmd_wake` refuses or prints raw lines depending on `T` vs `WAKE_LINES`. Plan response: verify the exact reproduction setup (`note` + `nap` so `cover` actually compresses to `WAKE_LINES=2` when leaked, vs printing raw/expanded lines when default `WAKE_LINES=96` applies) when writing the red test in Step 1.3.
 
+## QA Findings
+
+Result: **FAIL** — Build must rerun to fix the two blocking findings below in `test.py`.
+
+1. **Blocking (Completeness / Integrity) — Vacuous `ME` re-entrancy check in `test_store_routing` (`test.py:1228-1232`)**: `r3 = call_main(s2, ["--global", "zoom", "1048576-2097151"])` claims to verify that repeated `cli.main(argv)` calls do not duplicate `--global` in `ME`, but `cmd_zoom` for an out-of-range block (`memo:912-914`) prints `wake_cmd()` (`memo:201-203`), which recomputes `pretty(__file__) + (" --global" if SCOPE_GLOBAL else "")` and never reads `ME`. Deleting `ME = pretty(__file__)` from `memo.main()` leaves `r3` passing even when `cli.ME` accumulates repeated `--global` flags. Invoke a command path that formats `ME` (e.g., `zoom` with missing block ID `["--global", "zoom"]` -> `usage: %s zoom <lo>-<hi>`, or `note` with missing text) so the test fails if `ME` is not reset.
+2. **Blocking (DRY) — Duplicate in-process runner `call_main` in `test_store_routing` (`test.py:1204-1218`)**: The nested `call_main(store_dir, argv)` helper duplicates 14 lines of the existing module-level `run(*args, store=None, scope="--global")` helper (`test.py:158-182`) verbatim while bypassing `check_printed_commands()`. Replace `call_main` with `run("wake", store=s1)`, `run("wake", store=s2)`, and `run("zoom", store=s2)` so the re-entrancy test reuses `run()` and checks printed commands.
+3. **Advisory (Non-blocking) — Redundant substring check in `test_wake_and_printed_commands` (`test.py:1266`)**: `(exe + " wake") in rw.stderr` is strictly implied by `(exe + " wake --global") in rw.stderr`; checking backticked `` "`%s wake`" % exe `` would independently assert the bare-`wake` hint alongside the `--global` hint.
+
 ## Status
 
 - [x] Initialization complete
@@ -109,4 +117,4 @@ No new technology - validation not required.
 - [x] Pre-Mortem complete
 - [x] Preflight
 - [x] Build
-- [ ] QA
+- [ ] QA (FAIL — rerun `/niko-build` to fix blocking findings)
