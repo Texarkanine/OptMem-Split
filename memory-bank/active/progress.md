@@ -96,4 +96,18 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Insights
     - QA Pass 1's catch on `zoom 1048576-2097151` (`wake_cmd()` vs `ME`) reinforced verifying every newly written regression test against the exact mutation it claims to guard.
 
+## 2026-11-19 - REWORK INITIATED - Level 2
+
+* Operator feedback
+    - Address [PR #7 comment #7021229465](https://github.com/Texarkanine/OptMem-Split/pull/7#issuecomment-7021229465) and the measured wasted test work on this branch:
+      1. Delete the 5 dead cleanup subprocesses at the end of `test_wake_and_printed_commands`.
+      2. Eliminate subprocess seeding for the in-process `cli.main(argv)` re-entrancy checks in `test_store_routing`.
+      3. Stop running `check_printed_commands()` redundantly across every iteration of the 1,994-nap synthetic-life loop (~3,988 identical checks); validate printed commands cleanly once per printing site / non-bulk invocation instead.
+      4. Trim redundant flag-permutation loops (`init` 5→3, missing `MEMORY_DIR` 3→2, `wake --here` 4→2, redundant `note` placement duplicates, `test_cli_help` 14→minimal distinct cases) and deduplicate fixture setup boilerplate across the 5 branch-added test functions.
+      5. Run pure argv/routing/help/token checks in-process via `cli.main(argv)` (with `cwd`/`env` isolation), keeping real subprocesses only for checks that genuinely require a subprocess (minimal-`PATH` printed-command execution and CLI smoke).
+    - Push the branch when done and update PR #7's title and/or body as needed so it stays accurate.
+* Complexity
+    - Level 2 (Simple Enhancement).
+
+
 

@@ -42,3 +42,15 @@ Fix the SLOBAC audit findings in `test.py` (and the small `memo` entry-point/con
 4. `check_printed_commands` explicitly fails on unparseable shell quoting.
 5. Distinct error diagnostics, active config values, `TREE/2` isolation, and unset-`MEMORY_DIR` default global-store routing are verified via the public CLI surface.
 6. `python3 test.py` passes completely.
+
+## Rework
+
+Address [PR #7 comment #7021229465](https://github.com/Texarkanine/OptMem-Split/pull/7#issuecomment-7021229465) and eliminate non-value-adding work in the branch-added tests on `txrk9.multi-store-filing`, then push and keep PR #7's title/body accurate:
+
+1. Remove the 5 dead cleanup calls in `test_wake_and_printed_commands` (`forget`/`nap`/`config` after blank-summary check whose store is never read again).
+2. Remove the 15 subprocess calls used only to seed the in-process `cli.main(argv)` re-entrancy test in `test_store_routing` (seed in-process via `run()`).
+3. Stop running `check_printed_commands()` across every iteration of the 1,994-nap synthetic-life loop (eliminating ~3,988 identical non-independent checks) while preserving printed-command validation across all distinct printing sites exercised by the branch-added tests and non-bulk checks.
+4. Trim redundant flag-permutation loops (`init`, missing `MEMORY_DIR`, `wake --here`, `note` placement, `test_cli_help`) and extract a small shared git-repo/env fixture helper so the 5 branch-added functions do not repeat setup boilerplate.
+5. Run pure argv/routing/help/token tests in-process via `cli.main(argv)` with `cwd`/`env` isolation, reserving real subprocesses for checks that genuinely need one (minimal-`PATH` printed-command execution, shebang/CLI smoke).
+6. Push `txrk9.multi-store-filing` and update [PR #7](https://github.com/Texarkanine/OptMem-Split/pull/7)'s body (and title if needed) to accurately reflect the current diff, test count, and fixes (including the `memo.config()`/`memo.main(argv)` reset and [issue #8](https://github.com/Texarkanine/OptMem-Split/issues/8)).
+
