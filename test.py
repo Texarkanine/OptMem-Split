@@ -1201,34 +1201,18 @@ def test_store_routing():
                   cwd=repo2).returncode == 0,
               "s1 config WAKE_LINES=2 failed")
 
-        def call_main(store_dir, argv):
-            old_mem = os.environ.get("MEMORY_DIR")
-            os.environ["MEMORY_DIR"] = store_dir
-            out, err, code = io.StringIO(), io.StringIO(), 0
-            try:
-                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-                    cli.main(argv)
-            except SystemExit as e:
-                code = e.code if isinstance(e.code, int) else 0
-            finally:
-                if old_mem is None:
-                    os.environ.pop("MEMORY_DIR", None)
-                else:
-                    os.environ["MEMORY_DIR"] = old_mem
-            return Result(code, out.getvalue(), err.getvalue())
-
-        r1 = call_main(s1, ["--global", "wake"])
+        r1 = run("wake", store=s1)
         check(r1.returncode == 0 and "#0-1 " in r1.stdout,
               "cli.main(argv) did not read s1 with WAKE_LINES=2:\n" + r1.stdout + r1.stderr)
-        r2 = call_main(s2, ["--global", "wake"])
+        r2 = run("wake", store=s2)
         check(r2.returncode == 0
               and all(("#%d " % i) in r2.stdout for i in range(4))
               and "#0-1 " not in r2.stdout,
               "cli.main(argv) leaked WAKE_LINES=2 from prior call:\n" + r2.stdout + r2.stderr)
-        r3 = call_main(s2, ["--global", "zoom", "1048576-2097151"])
+        r3 = run("zoom", store=s2)
         check(r3.returncode == 1
               and "--global --global" not in r3.stderr
-              and (cli.pretty(MEMO) + " --global wake") in r3.stderr,
+              and ("usage: %s --global zoom <lo>-<hi>" % cli.pretty(MEMO)) in r3.stderr,
               "cli.main(argv) duplicated --global in ME:\n" + r3.stderr)
     finally:
         shutil.rmtree(base)
@@ -1263,8 +1247,8 @@ def test_wake_and_printed_commands():
             rw = sub(bad_wake, env, cwd=fresh_repo)
             check(rw.returncode == 1 and not rw.stdout
                   and "does not take --here" in rw.stderr
-                  and (exe + " wake") in rw.stderr
-                  and (exe + " wake --global") in rw.stderr,
+                  and ("`%s wake`" % exe) in rw.stderr
+                  and ("`%s wake --global`" % exe) in rw.stderr,
                   "%r should reject --here with wake guidance: %r / %r"
                   % (bad_wake, rw.stdout, rw.stderr))
             check(not os.path.exists(proj_store),
