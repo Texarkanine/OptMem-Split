@@ -116,4 +116,13 @@ No new technology - validation not required. `memo` remains a single Python 3 fi
 - [x] Pre-Mortem complete
 - [x] Preflight
 - [x] Build
-- [ ] QA
+- [x] QA
+
+## QA Results
+
+**Verdict:** PASS
+
+- **Scope, completeness, and integrity:** All requirements (FR-1 through FR-11, NFR-1 through NFR-7, C-1 through C-5) and all 17 acceptance criteria from [Texarkanine/OptMem-Split#5](https://github.com/Texarkanine/OptMem-Split/issues/5) are implemented cleanly in `memo`, verified by `python3 test.py` (115,640 passed, 0 failed), and released in commit `90b214a` (`feat(scope)!:`) with both C-4 breaking-change notes.
+- **Advisory (YAGNI, non-blocking):** `test.py` `run(*args, store=None, scope="--global")` includes a `store is False` branch and configurable `scope` parameter that are never called with non-default values (the new scope tests all invoke `sub()`). Harmless test-helper flexibility; does not block.
+- **Advisory (comment staleness, non-blocking):** The comment above `TEMPLATE.format(...)` in `memo` (`cmd_init`) still says "so the commands in it must be the unscoped ones", whereas `TEMPLATE` now embeds `--here`/`--global` per command and only needs the bare executable path (`pretty(__file__)`) rather than `ME` (`<memo> --global`). Purely an internal comment; does not block.
+

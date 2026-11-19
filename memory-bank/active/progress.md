@@ -52,5 +52,17 @@ Implement [Texarkanine/OptMem-Split#5](https://github.com/Texarkanine/OptMem-Spl
 * Insights
     - Trailing nap prompts can follow `You are awake.` in bare `wake` output, and pagination orders start with `Not awake yet. Run: ` — both exercised end-to-end with `PATH=/usr/bin:/bin`
 
+## 2026-11-19 - QA - COMPLETE
+
+* Work completed
+    - Audited the full git diff (`be43de4..HEAD`) across `memo`, `test.py`, `README.md`, `WINDOWS.md`, and persistent `memory-bank/` files against the plan in `memory-bank/active/tasks.md`, `memory-bank/active/projectbrief.md`, and [Texarkanine/OptMem-Split#5](https://github.com/Texarkanine/OptMem-Split/issues/5)
+    - Verified every `ME` and `wake_cmd()` interpolation across `memo`, confirmed `install.sh` and `relink-path-stores` compatibility, checked commit `90b214a` for C-4 breaking-change notes, and ran `python3 test.py` (115,640 passed, 0 failed)
+    - Recorded `PASS` in `memory-bank/active/.qa-validation-status` and updated `memory-bank/active/tasks.md` and `memory-bank/active/activeContext.md`
+* Decisions made
+    - QA verdict: PASS (2 minor non-blocking advisories: unused `store=False`/`scope` flexibility in `test.py`'s `run()` helper, and a slightly stale internal comment above `TEMPLATE.format(...)` in `memo`)
+* Insights
+    - Production diff in `memo` remains tightly scoped to argv parsing, `global_dir()`/`wake_cmd()`/`memory_dir()`, `store()`, `cmd_wake()`/`wake_both()`/`cmd_zoom()`, and `__doc__`/`TEMPLATE`, keeping upstream merge surface minimal
+
+
 
 
