@@ -39,4 +39,16 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Insights
     - `memo`'s `write_config` formats active knobs as `"%-2s%-12s = %-6d # %s"` (producing `"  WAKE_LINES   = 40     # ..."`), so Finding #17 assertions should parse active config lines or use whitespace-tolerant regex rather than literal `"WAKE_LINES = 40"`.
 
+## 2026-11-19 - BUILD - COMPLETE
 
+* Work completed
+    - Implemented TDD Step 1 in `memo`: `config(d)` resets `KNOBS` defaults before applying store overrides (red test proved global `WAKE_LINES=2` previously leaked into project bare `wake`), and `main(argv=None)` resets `ME`, `SCOPE_GLOBAL`, and `KNOBS` defaults and accepts explicit `argv`.
+    - Removed `DEFAULTS` and internal global mutation from `run()` (#9) and removed direct `cli.SCOPE_GLOBAL` mutation block (#14), replacing default `~/.optmem/memory` coverage via CLI subprocess in `test_store_routing`.
+    - Remediated all remaining branch-touched SLOBAC findings in `test.py` (#5, #8, #12, #13, #15–#22): stripped all `FR-*`/`NFR-*`/`C-*` fossils, regrouped branch-added tests into 4 capability sections, failed explicitly on `shlex.split` `ValueError`, tightened scope-error, `wake --here`, `nap`/`forget` `TREE/2`, and active `config` assertions.
+    - Filed GitHub issue https://github.com/Texarkanine/OptMem-Split/issues/8 for findings #1 (`monolithic-test-file`) and #3 (`wrong-level`).
+    - Verified `python3 test.py` (115,709 passed, 0 failed) and `py_compile`; confirmed untouched pre-existing findings (#2, #4, #6, #7, #10, #11) were not modified.
+* Decisions made
+    - Kept `memo`'s surgical reset over a larger `Ctx` refactor to minimize diff size and stay aligned with upstream `memo` structure.
+    - Parsed active (non-comment) `config` lines via `active_config()` alongside `memo config` stdout to handle `write_config`'s `"  WAKE_LINES   = 40     # ..."` padding (Preflight Advisory 1).
+* Insights
+    - TDD red run caught the real `wake_both` config-leak bug: `WAKE_LINES=2` in the global store collapsed a 4-memory project store into `#0-1`/`#2-3` during bare `wake` until `config(d)` restored defaults first.
