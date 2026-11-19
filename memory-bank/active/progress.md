@@ -119,6 +119,17 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Insights
     - Profiling showed the 5 branch-added functions spent `8.96s` spawning `146` `memo` subprocesses (`~29%` of total runtime), almost all for pure argv/routing/help logic that runs identically in-process via `cli.main(argv)`.
 
+## 2026-11-19 - REWORK PREFLIGHT - COMPLETE
+
+* Work completed
+    - Validated the Level 2 rework plan in `memory-bank/active/tasks.md` against `memo`, `test.py`, `memory-bank/systemPatterns.md`, `memory-bank/techContext.md`, `memory-bank/active/projectbrief.md`, and PR #7 comment #7021229465.
+    - Confirmed all 7 Level 2 preflight checks pass with no blocking findings and no plan edits required; verified lines 1339–1343 in `test_wake_and_printed_commands` are dead cleanup, `sub()` has zero external call sites, and `.github/workflows/` does not exist.
+    - Wrote `memory-bank/active/.preflight-status` with first line `PASS WITH ADVISORY`.
+* Decisions made
+    - Recorded `PASS WITH ADVISORY` with build-precision advisories (preserving one scoped `help` case for `memo:987-988`, aligning `glob zero`/`glob one` position comments, testing deduplication red-then-green in Unit 1 step 3, popping absent env keys in `invoke()`, and holding push/PR edit until after QA PASS) plus an `exe`-anchored command-scanner Radical Innovation advisory.
+* Insights
+    - Dropping both `["--here", "help"]` and `["--global", "help"]` in `test_cli_help` would leave `memo:987-988`'s post-strip `argv[0] == "help"` branch uncovered because `-h`/`--help` exit earlier at `memo:982-984`; keeping one scoped `help` case preserves full branch coverage at zero extra cost.
+
 
 
 
