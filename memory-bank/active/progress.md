@@ -130,6 +130,19 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Insights
     - Dropping both `["--here", "help"]` and `["--global", "help"]` in `test_cli_help` would leave `memo:987-988`'s post-strip `argv[0] == "help"` branch uncovered because `-h`/`--help` exit earlier at `memo:982-984`; keeping one scoped `help` case preserves full branch coverage at zero extra cost.
 
+## 2026-11-19 - REWORK BUILD - COMPLETE
+
+* Work completed
+    - Deduplicated `check_printed_commands()` via `SEEN_CMD_SHAPES` (`16` unique printed command shapes verified once instead of `~6,350` repeated checks).
+    - Added unified in-process `invoke(args, env=None, cwd=None)` with `run()` delegating to `invoke()`, removed unused `sub()`, and added `make_repo(path, origin)`.
+    - Switched all 5 branch-added functions to `invoke()` + `make_repo()`, kept the 5 minimal-`PATH` `shell=True` printed-command executions, deleted the 5 dead cleanup calls after `bw_blank`, seeded `s1`/`s2` in-process via `run()`, and trimmed redundant flag-permutation loops (preserving `["--here", "help"]` per Preflight Advisory 1).
+    - Updated `memory-bank/techContext.md` (`run()`/`invoke()`).
+    - Verified `python3 test.py` (`109362 passed, 0 failed`, total runtime dropped `32.5s → 23.8s`; branch-added 5 functions dropped `8.96s / 146 memo procs → 0.86s / 0 direct memo procs`).
+* Decisions made
+    - Held Unit 3 (`git push` and `gh pr edit 7`) until after QA PASS so only QA-verified commits are pushed.
+* Insights
+    - Running pure argv/routing/help tests through `invoke()` cut branch-added test runtime by >10× (`8.96s → 0.86s`) with zero loss of independent failure modes.
+
 
 
 
