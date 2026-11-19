@@ -63,6 +63,17 @@ Implement [Texarkanine/OptMem-Split#5](https://github.com/Texarkanine/OptMem-Spl
 * Insights
     - Production diff in `memo` remains tightly scoped to argv parsing, `global_dir()`/`wake_cmd()`/`memory_dir()`, `store()`, `cmd_wake()`/`wake_both()`/`cmd_zoom()`, and `__doc__`/`TEMPLATE`, keeping upstream merge surface minimal
 
+## 2026-11-19 - REFLECT - COMPLETE
+
+* Work completed
+    - Wrote `memory-bank/active/reflection/reflection-require-scope-flag.md`
+    - Reconciled persistent memory-bank files (`systemPatterns.md` exact-token flag contract and project-store creation wording; `techContext.md` test isolation and printed-command assertion contract; `productContext.md` skipped as already aligned)
+    - Updated `memory-bank/active/activeContext.md` to `REFLECT COMPLETE`
+* Decisions made
+    - Keep module-global `ME`/`SCOPE_GLOBAL` structure with separate `wake_cmd()` rather than refactoring to a scope object to honor NFR-2 minimal diff from upstream
+* Insights
+    - Auditing shared global mutations up front and embedding a printed-command invariant checker in `test.py` yielded a clean first-pass QA PASS
+
 
 
 
