@@ -91,4 +91,13 @@ No new technology - validation not required.
 - [x] Pre-Mortem complete
 - [x] Preflight
 - [x] Build
-- [ ] QA
+- [x] QA
+
+## QA Results
+
+**Result:** PASS (2026-11-19)
+
+- **Verified**: `test.py` and `memory-bank/techContext.md` in `cc762b1` satisfy all Build/Rework requirements (`SEEN_CMD_SHAPES` digit-normalized deduplication with explicit failures on malformed quotes/invalid scope flags, unified in-process `invoke()` with `run()` delegation and `sub()` removal, shared `make_repo()`, 5 dead cleanup calls deleted, `s1`/`s2` in-process seeding, trimmed flag-permutation loops preserving `["--here", "help"]`, and 5 minimal-`PATH` `shell=True` executions intact). `python3 -m py_compile memo test.py relink-path-stores` and `python3 test.py` pass (`109362 passed, 0 failed`), with zero direct `memo` subprocesses across the 5 branch-added functions and zero changes to untouched pre-existing tests.
+- **Non-blocking advisory — Unit 3 deferred post-QA**: Pushing `txrk9.multi-store-filing` and updating [PR #7](https://github.com/Texarkanine/OptMem-Split/pull/7) remain queued for execution after QA PASS as planned in Challenge 3 / Pre-Mortem.
+- **Non-blocking advisory — `invoke()` env-setup guard**: In `test.py:170-179`, mutating `os.environ` inside the `try:` block (rather than before it) would ensure partial env writes are restored if a future caller passed an invalid value; all current callers pass string values, so this does not block.
+

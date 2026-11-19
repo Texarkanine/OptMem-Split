@@ -143,6 +143,19 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Insights
     - Running pure argv/routing/help tests through `invoke()` cut branch-added test runtime by >10× (`8.96s → 0.86s`) with zero loss of independent failure modes.
 
+## 2026-11-19 - REWORK QA - COMPLETE
+
+* Work completed
+    - Reviewed `cc762b1` (`test.py` and `memory-bank/techContext.md`) and `01c1da3..HEAD` against the Level 2 rework plan in `memory-bank/active/tasks.md`, `memory-bank/active/projectbrief.md`, `memory-bank/systemPatterns.md`, and [PR #7 comment #7021229465](https://github.com/Texarkanine/OptMem-Split/pull/7#issuecomment-7021229465).
+    - Verified `python3 -m py_compile memo test.py relink-path-stores` and full `python3 test.py` (`109362 passed, 0 failed`), confirmed zero direct `memo` subprocesses across the 5 branch-added functions while preserving the 5 minimal-`PATH` `shell=True` printed-command executions, and probed `check_printed_commands()` to confirm malformed quotes, missing scope flags, and `wake --here` still fail explicitly while digit-normalized shapes deduplicate cleanly.
+    - Verified zero regressions or edits to untouched pre-existing tests, zero remaining `sub()` call sites or spec-ID fossils, and accurate documentation in `memory-bank/techContext.md`.
+    - Recorded `PASS` in `memory-bank/active/.qa-validation-status` and updated `memory-bank/active/tasks.md` and `memory-bank/active/activeContext.md`.
+* Decisions made
+    - Passed QA with two non-blocking advisories: Unit 3 (`git push` and PR #7 metadata update) remains queued post-QA as planned, and `invoke()`'s `os.environ` mutation loop sits immediately before `try:` (harmless with string env values).
+* Insights
+    - Digit-normalized `SEEN_CMD_SHAPES` covers all 14 distinct printed-command shapes across the 5 branch-added functions (16 across the full suite) while eliminating ~6,349 repeated identical checks.
+
+
 
 
 
