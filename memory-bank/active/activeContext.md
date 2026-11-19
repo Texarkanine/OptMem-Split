@@ -1,7 +1,7 @@
 # Active Context
 
 ## Current Task: require-scope-flag
-**Phase:** PLAN - COMPLETE
+**Phase:** PREFLIGHT - COMPLETE (PASS WITH ADVISORY)
 
 ## What Was Done
 - Audited every function, `ME` interpolation, and `MEMORY_DIR`/`SCOPE_GLOBAL` reference across `memo`, `test.py`, `install.sh`, `README.md`, `WINDOWS.md`, `relink-path-stores`, and `memory-bank/`.

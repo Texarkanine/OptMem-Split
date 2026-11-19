@@ -30,3 +30,15 @@ Implement [Texarkanine/OptMem-Split#5](https://github.com/Texarkanine/OptMem-Spl
     - `cmd_zoom()` line 894 also prints `Run: %s wake` and would print illegal `--here wake` unless it uses `wake_cmd()`
     - `store()` must drop `os.environ.get("MEMORY_DIR") or` from its missing-dir guard and check `if SCOPE_GLOBAL:` only, or `--here` would fail to create new project stores when `MEMORY_DIR` is set
 
+## 2026-11-19 - PREFLIGHT - COMPLETE
+
+* Work completed
+    - Validated `memory-bank/active/tasks.md` against codebase reality (`memo`, `test.py`, `install.sh`, `relink-path-stores`, `README.md`, `WINDOWS.md`, persistent memory-bank files, and issue #5) using `default-preflight.md`
+    - Wrote `memory-bank/active/.preflight-status` with result `PASS WITH ADVISORY`
+* Decisions made
+    - Plan is approved for Build as-is (`PASS WITH ADVISORY`); no in-phase TDD swap or strike needed
+* Insights
+    - Flagged `test.py` lines 301 and 375 (`memo wake` string/regex checks under `scope="--global"`), `test.py` line 769 (`XDG_DATA_HOME` restoration after `shutil.rmtree(xdg)`), and secondary prose mentions in `README.md`, `productContext.md`, and `techContext.md` as build advisories
+    - Recorded an advisory innovation to wire a printed-command scope invariant checker directly into `test.py`'s `run()` helper so every test enforces FR-6 across all error paths and future upstream merges
+
+

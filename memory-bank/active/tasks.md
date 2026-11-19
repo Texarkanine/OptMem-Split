@@ -114,6 +114,6 @@ No new technology - validation not required. `memo` remains a single Python 3 fi
 - [x] Implementation plan complete
 - [x] Technology validation complete
 - [x] Pre-Mortem complete
-- [ ] Preflight
+- [x] Preflight
 - [ ] Build
 - [ ] QA
