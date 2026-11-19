@@ -12,10 +12,10 @@ OptMem now runs on native Windows (no WSL required).
 
 ## Test (Windows native, no WSL)
 ```bat
-python memo init
 set MEMORY_DIR=C:\path\to\mem
-python memo note "first memory"
-python memo note "second memory"
+python memo init
+python memo note --global "first memory"
+python memo note --here "second memory"
 python memo wake
 ```
 Concurrency: 8 parallel `memo note` processes writing 1600 memories

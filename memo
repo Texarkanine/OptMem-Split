@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """OptMem: a permanent, append-only memory for AI agents.
 
-  {memo} init             create this memory; print the setup block.
-  {memo} wake [part [T]]  read your memory. Run first, every session.
-  {memo} note "..."       record one memory: one short line.
-  {memo} nap [id "..."]   do the pending compressions.
-  {memo} recall <regex>   search every memory ever recorded.
-  {memo} zoom <lo>-<hi>   open a tree node: its two halves.
-  {memo} forget <lo>-<hi> drop a bad summary; nap rebuilds it.
-  {memo} config [NAME=N]  show this memory's sizes, or change one.
-  {memo} import <file>    bulk-load dated memories (bootstrap only).
+  {memo} init                              create the global memory; print the setup block.
+  {memo} wake [--global] [part [T]]        read your memory. Run first, every session.
+  {memo} note --here|--global "..."        record one memory: one short line.
+  {memo} nap --here|--global [id "..."]    do the pending compressions.
+  {memo} recall --here|--global <regex>    search every memory in that store.
+  {memo} zoom --here|--global <lo>-<hi>    open a tree node: its two halves.
+  {memo} forget --here|--global <lo>-<hi>  drop a bad summary; nap rebuilds it.
+  {memo} config --here|--global [NAME=N]   show this memory's sizes, or change one.
+  {memo} import --here|--global <file>     bulk-load dated memories (bootstrap only).
+  {memo} help                              print this usage (-h or --help anywhere).
 
-Every command reads the memory of the PROJECT in the current directory. Put
-`--global` before it to reach the one memory that follows you everywhere.
-`wake` alone reads both: who you are, then where you are.
+Single-store commands require `--here` (the project in the current directory)
+or `--global` (the memory that follows you everywhere), anywhere in argv.
+`wake` alone reads both: global first, then project. `wake --global` reads
+only the global memory. `init` creates the global memory.
 
-Project memories live under $XDG_DATA_HOME/optmem, the global one in
-~/.optmem/memory, and $MEMORY_DIR overrides both.
+Project memories live under $XDG_DATA_HOME/optmem (default
+~/.local/share/optmem). The global memory lives in $MEMORY_DIR if set, else
+~/.optmem/memory.
 See github.com/VictorTaelin/OptMem.
 """
 
@@ -195,17 +198,24 @@ def scope_dir():
     return os.path.join(root, "optmem", slug)
 
 
+def wake_cmd():
+    """How to invoke `wake` for the current scope: bare for project, --global for global."""
+    return pretty(__file__) + (" --global" if SCOPE_GLOBAL else "")
+
+
+def global_dir():
+    """The global memory: $MEMORY_DIR when set, else ~/.optmem/memory."""
+    return os.path.expanduser(os.environ.get("MEMORY_DIR") or GLOBAL)
+
+
 def memory_dir():
-    """MEMORY_DIR wins, then --global, then the project in $PWD."""
-    d = os.environ.get("MEMORY_DIR")
-    if d:
-        return os.path.expanduser(d)
-    return os.path.expanduser(GLOBAL) if SCOPE_GLOBAL else scope_dir()
+    """The global memory for --global, or the project in $PWD for --here."""
+    return global_dir() if SCOPE_GLOBAL else scope_dir()
 
 
 def store():
     d = memory_dir()
-    # A named memory is only ever created by `memo init`: creating it IS
+    # The global memory is only ever created by `memo init`: creating it IS
     # creating the identity, and that is a deliberate act. If any other
     # command created it, a typo in MEMORY_DIR would silently open an empty
     # store, and the agent would wake with no past and write a second
@@ -213,7 +223,7 @@ def store():
     # repo, not typed, so there is no typo to guard and no reason to make
     # every new checkout be initialised before it can remember anything.
     if not os.path.isdir(d):
-        if os.environ.get("MEMORY_DIR") or SCOPE_GLOBAL:
+        if SCOPE_GLOBAL:
             die("No memory at %s.\nTo create one, run: %s init\n"
                 "To use an existing one, point MEMORY_DIR at it." % (d, ME))
         os.makedirs(d, exist_ok=True)
@@ -581,25 +591,24 @@ Without it you do not know who you are, or what was decided and tried.
 ### At startup: activating OptMem (mandatory)
 
 Run `{memo} wake` before any other tool call, in every session, and
-then do exactly what it prints, to the end of its output. It reads the
-global memory first, then the memory of the project you are in.
+then do exactly what it prints, to the end of its output. Do not pipe
+it through `head`, `tail`, or a pager. It reads the global memory first,
+then the memory of the project you are in.
 
 If you can see a prior OptMem wake in this conversation's history,
 do not run it again.
 
 ### While working: register memories (mandatory)
 
-Call `{memo} note "<1 line, max {chars} bytes>"` whenever you learn
-something new, or something worth keeping happens. That covers a task
-worth real effort, a fact or insight the user teaches you, anything you
-learn about their life (even indirectly), any event of lasting effect.
-
-That writes to the memory of the project you are in, which is where
-almost everything belongs. Add `--global` ONLY if the memory would still
-be true tomorrow in a repository you have never seen: who the user is,
-how they want to be worked with, this machine, your own tooling. How one
-project does something is not global, however much it feels like a
-lesson -- write it to that project.
+Call `{memo} note --here "<1 line, max {chars} bytes>"` for what is true
+of this project, and `{memo} note --global "<1 line, max {chars} bytes>"`
+only for what would still be true tomorrow in a repository you have never
+seen: who the user is, how they want to be worked with, this machine,
+your own tooling. Record a memory whenever you learn something new, or
+something worth keeping happens: a task worth real effort, a fact or
+insight the user teaches you, anything you learn about their life (even
+indirectly), any event of lasting effect. How one project does something
+is not global, however much it feels like a lesson -- use `--here`.
 
 Do not register redundant memories.
 
@@ -609,14 +618,14 @@ Never edit or delete a memory directory: the tool manages it.
 
 ### When you need an old memory: search, or navigate
 
-`{memo} recall <regex>` searches every memory, word for word. It and
-`zoom` below read the project memory; put `--global` first for the
-global one.
+`{memo} recall --here <regex>` and `{memo} recall --global <regex>`
+search every memory in that store, word for word.
 
 Your memories also form a binary tree: #0-1, #2-3 ... exist as one-line
 summaries, pairs of those as #0-3, and so on -- every `#a-b` line wake
-prints is one node of it. `{memo} zoom <a-b>` opens a node into its
-two halves, down to the raw memories.
+prints is one node of it. `{memo} zoom --here <a-b>` and
+`{memo} zoom --global <a-b>` open a node into its two halves, down to
+the raw memories.
 
 ### If you're a subagent: skip everything above
 
@@ -676,13 +685,13 @@ def cmd_wake(d, args, tail=True):
     k, T = 1, now
     if args:
         if len(args) > 2 or not all(a.isdigit() for a in args):
-            die("usage: %s wake [part [T]]" % ME)
+            die("usage: %s wake [part [T]]" % wake_cmd())
         k = int(args[0])
         if len(args) == 2:
             T = int(args[1])
             if T > now:
                 die("T=%d, but the log holds %s. Run: %s wake"
-                    % (T, plural(now, "memory"), ME))
+                    % (T, plural(now, "memory"), wake_cmd()))
     # A part is rendered as of T, so a note landing between two parts cannot
     # shift a boundary and drop a line.
     if not T:
@@ -708,7 +717,8 @@ def cmd_wake(d, args, tail=True):
                           "which is not compressed yet.\nDo the %s below, "
                           "then run %s wake again.\n"
                           % (lo, hi - 1,
-                             plural(pending_count(d, T), "compression"), ME))
+                             plural(pending_count(d, T), "compression"),
+                             wake_cmd()))
                     print(nap)
                     sys.exit(1)
                 s = tree_get(d, lo, hi)  # a parallel session may have paid it
@@ -721,7 +731,7 @@ def cmd_wake(d, args, tail=True):
     parts = paginate(lines)
     if not 1 <= k <= len(parts):
         die("No part %d: the memory has %s. Run: %s wake"
-            % (k, plural(len(parts), "part"), ME))
+            % (k, plural(len(parts), "part"), wake_cmd()))
     if len(parts) > 1:
         # The count is here so the T in `memo wake 2 296` reads as what it
         # is: the snapshot this document was written from.
@@ -732,7 +742,7 @@ def cmd_wake(d, args, tail=True):
         # This footer is the only instruction that survives every harness's
         # truncation (pi drops the HEAD of a long output), so it has to say
         # both that the read is unfinished and how to continue it.
-        print("Not awake yet. Run: %s wake %d %d" % (ME, k + 1, T))
+        print("Not awake yet. Run: %s wake %d %d" % (wake_cmd(), k + 1, T))
         return False
     else:
         # always, even for a one-part memory: the contract an agent is given
@@ -751,14 +761,17 @@ def wake_both(args):
     memory, which is the one this session will actually work in. Paging
     arguments address the project memory; the global one pages under its own
     `--global`, and until it has finished there is nothing to page into."""
-    global ME
-    g = os.path.expanduser(GLOBAL)
+    global ME, SCOPE_GLOBAL
+    base = ME
+    g = global_dir()
     if os.path.isdir(g):
-        me, ME = ME, ME + " --global"
-        config(g)
-        print("== Global memory: what is true in every project ==")
-        done = cmd_wake(g, [], tail=False)
-        ME = me
+        SCOPE_GLOBAL, ME = True, base + " --global"
+        try:
+            config(g)
+            print("== Global memory: what is true in every project ==")
+            done = cmd_wake(g, [], tail=False)
+        finally:
+            SCOPE_GLOBAL, ME = False, base
         if not done:
             return
         print()
@@ -767,10 +780,14 @@ def wake_both(args):
         # follow the user anywhere until the global memory exists.
         print("No global memory yet; only this project will be remembered.\n"
               "To create one, run: %s init\n" % pretty(__file__))
-    d = store()
-    config(d)
-    print("== Project memory: %s ==" % pretty(d))
-    cmd_wake(d, args)
+    ME = base + " --here"
+    try:
+        d = store()
+        config(d)
+        print("== Project memory: %s ==" % pretty(d))
+        cmd_wake(d, args)
+    finally:
+        ME = base
 
 
 def cmd_note(d, args):
@@ -892,7 +909,7 @@ def cmd_zoom(d, args):
     T = log_len(d)
     if lo >= T:
         die("#%s is beyond the memory: it holds %s. Run: %s wake"
-            % (args[0], plural(T, "memory"), ME))
+            % (args[0], plural(T, "memory"), wake_cmd()))
     mid = (lo + hi) // 2
     for a, b in ((lo, mid), (mid, hi)):
         if a >= T:
@@ -952,14 +969,15 @@ COMMANDS = {"init": cmd_init, "wake": cmd_wake, "note": cmd_note,
 
 def main():
     global SCOPE_GLOBAL, ME
-    argv = [a for a in sys.argv[1:] if a != "--global"]
-    SCOPE_GLOBAL = len(argv) < len(sys.argv) - 1
-    if SCOPE_GLOBAL:
-        # Named here and nowhere else: every command this tool prints comes
-        # back to the memory it was printed from.
-        ME += " --global"
+    raw = sys.argv[1:]
     usage = __doc__.strip().format(memo=pretty(__file__))
-    if not argv:
+    if "-h" in raw or "--help" in raw:
+        print(usage)
+        sys.exit(0)
+    has_here = "--here" in raw
+    has_global = "--global" in raw
+    argv = [a for a in raw if a not in ("--here", "--global")]
+    if not argv or argv[0] == "help":
         print(usage)
         sys.exit(0)
     cmd = argv[0]
@@ -969,19 +987,31 @@ def main():
         sys.exit(1)
     try:
         # `init` is the only command that may run without an existing memory:
-        # it is the one that creates it. Every other command refuses, so a
-        # typo in MEMORY_DIR is an error instead of a second, empty identity.
+        # it always creates the global one (at MEMORY_DIR if set), and accepts
+        # a scope flag because error messages print `<memo> --global init`.
         if cmd == "init":
-            # Creating a memory is creating an identity, and the identity is
-            # the global one. A project memory needs no ceremony: it appears
-            # the first time that project remembers anything.
-            SCOPE_GLOBAL = not os.environ.get("MEMORY_DIR")
-            cmd_init(memory_dir(), argv[1:])
+            SCOPE_GLOBAL = True
+            ME = pretty(__file__) + " --global"
+            cmd_init(global_dir(), argv[1:])
             return
-        # A bare `wake` is the one command that spans both scopes.
-        if cmd == "wake" and not SCOPE_GLOBAL and not os.environ.get("MEMORY_DIR"):
-            wake_both(argv[1:])
-            return
+        if cmd == "wake":
+            if has_here:
+                die("`wake` does not take --here: run `%s wake` for both "
+                    "memories, or `%s wake --global` for the global one."
+                    % (ME, ME))
+            if not has_global:
+                wake_both(argv[1:])
+                return
+            SCOPE_GLOBAL = True
+            ME += " --global"
+        else:
+            if has_here == has_global:
+                die("%s: use --here if it is about this project, or --global "
+                    "if it would still be true in a repository you have never "
+                    "seen." % ("Choose one scope, not both" if has_here else
+                               "Scope is required"))
+            SCOPE_GLOBAL = has_global
+            ME += " --global" if SCOPE_GLOBAL else " --here"
         d = store()
         config(d)
         COMMANDS[cmd](d, argv[1:])

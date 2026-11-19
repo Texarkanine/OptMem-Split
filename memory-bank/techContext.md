@@ -12,4 +12,4 @@ None for the tool. `install.sh` curls `memo` into `~/.optmem`. The `anim/` GIF i
 
 ## Testing Process
 
-`python3 test.py` from the repo root. The suite is a single script of assertions against the `memo` CLI (in-process and subprocess). Windows path encodings are asserted on POSIX via `ntpath` (`path_slug` / `repo_slug`); see `WINDOWS.md` for a native smoke with `MEMORY_DIR` pinned.
+`python3 test.py` from the repo root. The suite is a single script of assertions against the `memo` CLI (in-process and subprocess). Windows path encodings are asserted on POSIX via `ntpath` (`path_slug` / `repo_slug`); see `WINDOWS.md` for a native smoke with `MEMORY_DIR` set for the global store.

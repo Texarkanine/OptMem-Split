@@ -2,7 +2,7 @@
 
 Permanent memory for AI agents. A 400-ish-token prompt, a script, plug and play.
 
-This fork of [VictorTaelin/OptMem](https://github.com/VictorTaelin/OptMem) flips the default: **one memory store per project**, plus one global memory that follows you everywhere. Project first; `--global` for the rest.
+This fork of [VictorTaelin/OptMem](https://github.com/VictorTaelin/OptMem) splits memory into **one store per project** plus one global memory that follows you everywhere. Every store command requires `--here` or `--global`; bare `wake` reads both.
 
 ![how OptMem works](anim/optmem.gif)
 
@@ -22,14 +22,16 @@ The tool lands at `~/.optmem/memo`; put `~/.optmem` on `PATH` to type `memo`.
 
 | | |
 |---|---|
-| `memo wake` | read both memories — global, then project; first command of every session |
-| `memo note "..."` | record one memory: one line, up to 280 bytes (project by default) |
-| `memo nap` | answer the merges that came due |
-| `memo recall <regex>` | search every memory ever recorded, word for word |
-| `memo zoom <lo>-<hi>` | open a tree node into its two halves |
-| `memo forget <lo>-<hi>` | drop a bad summary; the next nap rebuilds it |
+| `memo wake [--global]` | read both memories (global, then project), or only global with `--global`; first command of every session |
+| `memo note --here\|--global "..."` | record one memory: one line, up to 280 bytes |
+| `memo nap --here\|--global` | answer the merges that came due |
+| `memo recall --here\|--global <regex>` | search every memory in that store, word for word |
+| `memo zoom --here\|--global <lo>-<hi>` | open a tree node into its two halves |
+| `memo forget --here\|--global <lo>-<hi>` | drop a bad summary; the next nap rebuilds it |
+| `memo config --here\|--global [NAME=N]` | show a store's sizes, or change one |
+| `memo help` | print usage (`-h` or `--help` anywhere also prints usage) |
 
-Put `--global` before any command to reach the memory that follows you into every project.
+Pass `--here` (this project) or `--global` (the memory that follows you into every project) anywhere in a single-store command; omitting it or passing both is an error.
 Merges arrive one at a time, in the output of `note`. Nothing ever runs in the background.
 
 ## Why Split Memory
@@ -40,22 +42,22 @@ N interleaved projects make each one's detail decay at the rate of the other N�
 so a repo left alone for six months wakes up remembering nothing — 
 its memories intact in the log and out of reach.
 
-So every command speaks to the memory of the project in `$PWD`, 
-keyed by the origin remote reduced to `owner/repo` 
-(every worktree and host alias for one repo is one memory). 
-`--global` reaches the one that follows you everywhere. `wake` alone reads both: 
-who you are, then where you are. Almost everything belongs in the project; 
-use `--global` only for what would still be true tomorrow in a repository you have never seen.
+So every single-store command names its scope: `--here` for the memory of the
+project in `$PWD`, keyed by the origin remote reduced to `owner/repo` (every
+worktree and host alias for one repo is one memory), or `--global` for the one
+that follows you everywhere. `wake` alone reads both: who you are, then where
+you are. Almost everything belongs in the project (`--here`); use `--global`
+only for what would still be true tomorrow in a repository you have never seen.
 
 ## Files
 
 ```
 ~/.optmem/
   memo              the tool: one file of Python 3, no dependencies
-  memory/           the global memory (create with `memo init`)
+  memory/           the global memory (create with `memo init`; move with $MEMORY_DIR)
     LOG.txt         every memory, one per line, append-only, never edited
     TREE/           the summaries: a cache, rebuildable from the log alone
-    config          the sizes, written by `memo config`
+    config          the sizes, written by `memo config --global`
 
 $XDG_DATA_HOME/optmem/   (default: ~/.local/share/optmem)
   repo/<owner>/<repo>/   one memory per project, same layout as memory/
@@ -65,9 +67,9 @@ $XDG_DATA_HOME/optmem/   (default: ~/.local/share/optmem)
 A directory with no origin remote is keyed by its path. On Linux and macOS that path is already physical after `cd`, so this does not change an existing store. On Windows the current directory can still name a symlink, a junction, or a substituted drive, and the key is now the resolved directory. A store under the old spelling stays on disk and looks empty. This repository contains `relink-path-stores` for that Windows case. The installer does not copy it. From a checkout of this release, on the machine that holds the stores, run it before the next `memo` command: `python relink-path-stores`, then `python relink-path-stores --move`. The first command writes nothing and shows each store it would move. The script does not replace a store that is already at the destination. If a `memo` command has already created an empty store at the resolved key, remove that destination directory (not the old store) and run the script again. If the new store has memories, leave both and move the lines by hand.
 
 ```sh
-memo config                  # show the sizes
-memo config WAKE_LINES=300   # how many lines wake prints (96 ≈ 8k tokens)
-memo config WAKE_LINES=      # back to the default
+memo config --here                  # show the sizes
+memo config --here WAKE_LINES=300   # how many lines wake prints (96 ≈ 8k tokens)
+memo config --here WAKE_LINES=      # back to the default
 ```
 
 `WAKE_LINES` is the only size worth touching, and it is a reading budget, not
@@ -77,7 +79,7 @@ recomputed.
 Records are fixed width, so position *is* identity and every lookup is one
 seek. At a million memories (608 MB), `wake` takes 0.03s.
 
-Set `$MEMORY_DIR` to pin a single store and skip scoping — a synced folder, a git repo.
+Set `$MEMORY_DIR` to move the global memory (default `~/.optmem/memory`) — for example, to a synced folder. Project memories always live under `$XDG_DATA_HOME/optmem`.
 
 ## The prompt
 
@@ -97,25 +99,24 @@ Without it you do not know who you are, or what was decided and tried.
 ### At startup: activating OptMem (mandatory)
 
 Run `~/.optmem/memo wake` before any other tool call, in every session, and
-then do exactly what it prints, to the end of its output. It reads the
-global memory first, then the memory of the project you are in.
+then do exactly what it prints, to the end of its output. Do not pipe
+it through `head`, `tail`, or a pager. It reads the global memory first,
+then the memory of the project you are in.
 
 If you can see a prior OptMem wake in this conversation's history,
 do not run it again.
 
 ### While working: register memories (mandatory)
 
-Call `~/.optmem/memo note "<1 line, max 280 bytes>"` whenever you learn
-something new, or something worth keeping happens. That covers a task
-worth real effort, a fact or insight the user teaches you, anything you
-learn about their life (even indirectly), any event of lasting effect.
-
-That writes to the memory of the project you are in, which is where
-almost everything belongs. Add `--global` ONLY if the memory would still
-be true tomorrow in a repository you have never seen: who the user is,
-how they want to be worked with, this machine, your own tooling. How one
-project does something is not global, however much it feels like a
-lesson -- write it to that project.
+Call `~/.optmem/memo note --here "<1 line, max 280 bytes>"` for what is true
+of this project, and `~/.optmem/memo note --global "<1 line, max 280 bytes>"`
+only for what would still be true tomorrow in a repository you have never
+seen: who the user is, how they want to be worked with, this machine,
+your own tooling. Record a memory whenever you learn something new, or
+something worth keeping happens: a task worth real effort, a fact or
+insight the user teaches you, anything you learn about their life (even
+indirectly), any event of lasting effect. How one project does something
+is not global, however much it feels like a lesson -- use `--here`.
 
 Do not register redundant memories.
 
@@ -125,14 +126,14 @@ Never edit or delete a memory directory: the tool manages it.
 
 ### When you need an old memory: search, or navigate
 
-`~/.optmem/memo recall <regex>` searches every memory, word for word. It and
-`zoom` below read the project memory; put `--global` first for the
-global one.
+`~/.optmem/memo recall --here <regex>` and `~/.optmem/memo recall --global <regex>`
+search every memory in that store, word for word.
 
 Your memories also form a binary tree: #0-1, #2-3 ... exist as one-line
 summaries, pairs of those as #0-3, and so on -- every `#a-b` line wake
-prints is one node of it. `~/.optmem/memo zoom <a-b>` opens a node into its
-two halves, down to the raw memories.
+prints is one node of it. `~/.optmem/memo zoom --here <a-b>` and
+`~/.optmem/memo zoom --global <a-b>` open a node into its two halves, down to
+the raw memories.
 
 ### If you're a subagent: skip everything above
 

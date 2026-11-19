@@ -10,7 +10,7 @@ People who run AI coding agents across several projects and want those agents to
 - Record one short fact while working, in the project that produced it.
 - Reach a smaller set of facts that should follow the operator into every repository (how they work, this machine, tooling).
 - Search or walk older memories when the recent summary is not enough.
-- Pin a single store (a synced folder, a shared identity) instead of per-project scoping.
+- Relocate the global store (for example to a synced folder) independently of per-project stores.
 
 ## Key Benefits
 
@@ -31,4 +31,4 @@ People who run AI coding agents across several projects and want those agents to
 - One line per memory, short enough to stay a single record.
 - The agent, not a daemon, performs compressions when asked.
 - Integration is a pasted prompt plus a script; no service, no account, no network after install.
-- Upstream OptMem remains a single-store tool; this fork's product difference is split default scoping.
+- Upstream OptMem remains a single-store tool; this fork splits project and global stores and requires an explicit scope on store commands.

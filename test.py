@@ -4,17 +4,28 @@
 Uses a fake compressor (join + truncate) so the run is deterministic and free.
 """
 
+import atexit
 import contextlib
 import datetime
 import io
 import ntpath
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 from importlib.machinery import SourceFileLoader
+
+# NFR-5: isolate HOME and XDG_DATA_HOME before importing memo or running any
+# command so test.py never reads or writes a real user or project store.
+TEST_HOME = tempfile.mkdtemp(prefix="optmem-test-home-")
+TEST_XDG = os.path.join(TEST_HOME, ".local", "share")
+os.environ["HOME"] = TEST_HOME
+os.environ["XDG_DATA_HOME"] = TEST_XDG
+os.environ.pop("MEMORY_DIR", None)
+atexit.register(shutil.rmtree, TEST_HOME, True)
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 MEMO = os.path.join(HERE, "memo")
@@ -103,44 +114,105 @@ class Result:
         self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
 
 
-def run(*args, store=None):
-    """One `memo` command, in-process. Spawning an interpreter per call cost
-    ~40ms x ~2000 naps; the cross-process behaviour that genuinely needs real
-    processes (the lock) is tested with real processes below."""
-    os.environ["MEMORY_DIR"] = store or d
+SCOPED_CMDS = {"note", "nap", "recall", "zoom", "forget", "config", "import"}
+
+
+def check_printed_commands(text):
+    """Verify FR-6 on runtime command hints/orders printed by memo."""
+    if not text or "## Memory" in text or "OptMem: a permanent" in text:
+        return
+    exe = cli.pretty(MEMO)
+    for line in text.splitlines():
+        m = re.search(
+            r"(?:Run: |usage: |To create one, run: |Record the first with: |then run )(.+)$",
+            line,
+        )
+        if not m:
+            continue
+        segment = m.group(1).strip()
+        if segment.endswith(" again."):
+            segment = segment[:-len(" again.")]
+        elif segment.endswith("."):
+            segment = segment[:-1]
+        if "   #" in segment:
+            segment = segment.split("   #", 1)[0].strip()
+        try:
+            tokens = shlex.split(segment)
+        except ValueError:
+            continue
+        if not tokens:
+            continue
+        check(tokens[0] == exe,
+              "printed command did not name %r: %r" % (exe, line))
+        rest = tokens[1:]
+        has_here = "--here" in rest
+        has_global = "--global" in rest
+        pos = [t for t in rest if t not in ("--here", "--global")]
+        if not pos:
+            continue
+        sub = pos[0]
+        if sub in SCOPED_CMDS:
+            check(has_here ^ has_global,
+                  "printed %s command missing single scope flag: %r" % (sub, line))
+        elif sub == "wake":
+            check(not has_here,
+                  "printed wake command must never carry --here: %r" % line)
+
+
+def run(*args, store=None, scope="--global"):
+    """One `memo` command, in-process via `cli.main()`. Spawning an
+    interpreter per call cost ~40ms x ~2000 naps; cross-process behaviour
+    (locks, PATH, env) is tested with real processes below."""
+    old_argv = sys.argv
+    old_mem = os.environ.get("MEMORY_DIR")
+    if store is False:
+        os.environ.pop("MEMORY_DIR", None)
+    else:
+        os.environ["MEMORY_DIR"] = store or d
+    cli.ME = cli.pretty(MEMO)
+    cli.SCOPE_GLOBAL = False
     for k, v in DEFAULTS.items():
         setattr(cli, k, v)
+    sys.argv = [MEMO] + ([scope] if scope else []) + list(args)
     out, err, code = io.StringIO(), io.StringIO(), 0
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            sd = cli.store()
-            cli.config(sd)
-            cli.COMMANDS[args[0]](sd, list(args[1:]))
+            cli.main()
     except SystemExit as e:
         code = e.code if isinstance(e.code, int) else 0
-    return Result(code, out.getvalue(), err.getvalue())
+    finally:
+        sys.argv = old_argv
+        if old_mem is None:
+            os.environ.pop("MEMORY_DIR", None)
+        else:
+            os.environ["MEMORY_DIR"] = old_mem
+    res = Result(code, out.getvalue(), err.getvalue())
+    check_printed_commands(res.stdout)
+    check_printed_commands(res.stderr)
+    return res
 
 
 def nap_id(out):
     """The block id from the command a nap prompt offers."""
-    m = re.search(r"memo nap (\d+)-(\d+)", out)
+    m = re.search(r"memo (?:--here|--global) nap (\d+)-(\d+)", out)
     return "%s-%s" % m.groups() if m else None
 
 
 def offered(out):
     """The line offering a command. Every command handed to an agent must be
     an order, not a label: `Run: memo ...`, never `next: memo ...`."""
-    return [l for l in out.splitlines() if "memo nap " in l or "memo wake " in l]
+    return [l for l in out.splitlines()
+            if re.search(r"memo (?:(?:--here|--global) nap |(?:--global )?wake )", l)]
 
 
 # the real entry point still has to work: shebang, argv parsing, exit code
-smoke = subprocess.run(memo + ["wake"], env=dict(os.environ, MEMORY_DIR=d),
+smoke = subprocess.run(memo + ["--global", "wake"], env=dict(os.environ, MEMORY_DIR=d),
                        capture_output=True, text=True)
 check(smoke.returncode == 0 and "No memories yet" in smoke.stdout,
       "the memo CLI does not run: " + smoke.stdout + smoke.stderr)
 
 # a typo in MEMORY_DIR must not silently open a second, empty identity
-ghost = subprocess.run(memo + ["wake"], capture_output=True, text=True,
+ghost = subprocess.run(memo + ["--global", "wake"], capture_output=True, text=True,
                        env=dict(os.environ, MEMORY_DIR=d + "-typo"))
 check(ghost.returncode == 1 and "No memory at" in ghost.stderr,
       "a missing MEMORY_DIR was created instead of reported")
@@ -172,9 +244,9 @@ check(woke.returncode == 0 and "You are awake." in woke.stdout,
 # `curl | sh` puts nothing on PATH, so a bare `memo nap ...` would not: the
 # whole loop (note -> merge prompt -> nap) dies on `command not found`.
 bare = dict(fresh, PATH="/usr/bin:/bin")
-subprocess.run(memo + ["note", "the first thing that happened"], env=bare,
+subprocess.run(memo + ["note", "--here", "the first thing that happened"], env=bare,
                capture_output=True)
-asked = subprocess.run(memo + ["note", "the second thing that happened"],
+asked = subprocess.run(memo + ["note", "--here", "the second thing that happened"],
                        env=bare, capture_output=True, text=True)
 order = [l[5:] for l in asked.stdout.splitlines() if l.startswith("Run: ")]
 check(len(order) == 1, "note did not order a compression: " + asked.stdout)
@@ -298,7 +370,7 @@ lines = [l for p in parts for l in p]
 check(len(lines) == WAKE_LINES, "woke with %d lines, want %d" % (len(lines), WAKE_LINES))
 check(lines[-1].startswith("#%d " % (N - 1)), "newest memory not last / not raw")
 check(lines[0].startswith("#0-"), "oldest line should be a summary block")
-check(re.search(r"Run: \S*memo wake 2", run("wake").stdout),
+check(re.search(r"Run: \S*memo --global wake 2", run("wake").stdout),
       "part 1 must ORDER the next command, not label it")
 check("You are awake." in run("wake", str(len(parts))).stdout,
       "last part must say it is last")
@@ -372,7 +444,7 @@ check(run("zoom", "9-3").returncode == 1, "zoom accepted a backwards range")
 check(run("zoom").returncode == 1, "zoom with no id must show usage")
 r = run("zoom", "1048576-2097151")
 check(r.returncode == 1 and "beyond the memory" in r.stderr
-      and "memo wake" in r.stderr, "zoom past the end must name a way back")
+      and "memo --global wake" in r.stderr, "zoom past the end must name a way back")
 
 
 def treesize():
@@ -478,7 +550,7 @@ check("Narrow the regex" in r.stdout, "recall did not say it had been capped")
 d2 = tempfile.mkdtemp(prefix="optmem-race-")
 env2 = dict(os.environ, MEMORY_DIR=d2)
 P = 16  # real processes: this is the cross-process lock under test
-procs = [subprocess.Popen(memo + ["note", "parallel note %d" % i], env=env2,
+procs = [subprocess.Popen(memo + ["--global", "note", "parallel note %d" % i], env=env2,
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
          for i in range(P)]
 for p in procs:
@@ -534,7 +606,7 @@ check(r.returncode == 1 and "forget 0-1" in r.stderr
 # an unreadable level is a filesystem failure and must surface as one --
 # reading it as "not compressed yet" offers work that cannot be done
 os.chmod(os.path.join(d3, "TREE", "2"), 0)
-r_ = subprocess.run(memo + ["wake"], capture_output=True, text=True,
+r_ = subprocess.run(memo + ["--global", "wake"], capture_output=True, text=True,
                     env=dict(os.environ, MEMORY_DIR=d3))
 check(r_.returncode == 1 and "Permission denied" in r_.stderr
       and "not compressed" not in r_.stdout,
@@ -570,7 +642,7 @@ shutil.rmtree(d4)
 # one arrow in a memory made wake crash forever on a latin-1 machine
 d5 = tempfile.mkdtemp(prefix="optmem-utf8-")
 run("note", "an arrow \u2192 survives any locale", store=d5)
-r_ = subprocess.run(memo + ["wake"], capture_output=True,
+r_ = subprocess.run(memo + ["--global", "wake"], capture_output=True,
                     env=dict(os.environ, MEMORY_DIR=d5,
                              PYTHONIOENCODING="latin-1"))
 check(r_.returncode == 0 and "\u2192".encode() in r_.stdout,
@@ -634,8 +706,8 @@ check(fingerprint(d) == before, "init modified an existing memory")
 r = run("wake")
 check(r.stdout.rstrip().endswith("You are awake."), "wake broke after re-init")
 
-# ---- scope: which memory a command speaks to, when nothing points at one
-# Every test above pins MEMORY_DIR, so it also proves MEMORY_DIR still wins.
+# ---- scope: project slug resolution, --here/--global, MEMORY_DIR, and help
+# Every synthetic-life test above pins MEMORY_DIR with --global.
 xdg = tempfile.mkdtemp(prefix="optmem-xdg-")
 os.environ["XDG_DATA_HOME"] = xdg
 os.environ.pop("MEMORY_DIR", None)
@@ -739,20 +811,23 @@ check("\\" not in as_repo(win_origin) and ":" not in as_repo(win_origin)[len(xdg
       "a Windows-path origin kept a drive or backslash in the slug: "
       + as_repo(win_origin))
 
-# --global reaches the one memory that is not a project's, and nothing else.
+# --global reaches the global memory ($MEMORY_DIR if set, else ~/.optmem/memory).
+# --here always uses the project store under $XDG_DATA_HOME, even when MEMORY_DIR is set.
 cli.SCOPE_GLOBAL = True
 check(cli.memory_dir() == os.path.expanduser(cli.GLOBAL), "--global missed")
 os.environ["MEMORY_DIR"] = d
-check(cli.memory_dir() == d, "MEMORY_DIR no longer wins over --global")
-os.environ.pop("MEMORY_DIR")
+check(cli.memory_dir() == d, "MEMORY_DIR did not move --global")
 cli.SCOPE_GLOBAL = False
+check(cli.memory_dir() == cli.scope_dir(),
+      "MEMORY_DIR hijacked --here instead of staying on XDG_DATA_HOME")
+os.environ.pop("MEMORY_DIR")
 
 # end to end: a real checkout remembers into its own memory, not the global.
 repo = tempfile.mkdtemp(prefix="optmem-repo-")
 subprocess.run(["git", "init", "-q", repo], check=True)
 subprocess.run(["git", "-C", repo, "remote", "add", "origin",
                 "git@github.com:acme/widget.git"], check=True)
-e2e = subprocess.run(memo + ["note", "scoped memories land in the project"],
+e2e = subprocess.run(memo + ["note", "--here", "scoped memories land in the project"],
                      cwd=repo, capture_output=True, text=True,
                      env=dict(os.environ, XDG_DATA_HOME=xdg))
 check(e2e.returncode == 0 and "Saved as #0." in e2e.stdout,
@@ -760,15 +835,488 @@ check(e2e.returncode == 0 and "Saved as #0." in e2e.stdout,
       + e2e.stdout + e2e.stderr)
 log = os.path.join(xdg, "optmem", "repo", "acme", "widget", "LOG.txt")
 check(os.path.exists(log), "the project memory was not created at " + log)
-r = subprocess.run(memo + ["recall", "scoped"], cwd=repo, capture_output=True,
+r = subprocess.run(memo + ["recall", "--here", "scoped"], cwd=repo, capture_output=True,
                    text=True, env=dict(os.environ, XDG_DATA_HOME=xdg))
 check("1 match" in r.stdout or "scoped memories" in r.stdout,
       "recall did not read the project memory: " + r.stdout + r.stderr)
 
 shutil.rmtree(repo)
 shutil.rmtree(xdg)
+os.environ["XDG_DATA_HOME"] = TEST_XDG
 shutil.rmtree(d2)
 shutil.rmtree(d)
+
+
+def sub(args, env, cwd=None):
+    """Run memo as a subprocess and check FR-6 on any printed commands."""
+    r = subprocess.run(memo + list(args), cwd=cwd, env=env,
+                       capture_output=True, text=True)
+    check_printed_commands(r.stdout)
+    check_printed_commands(r.stderr)
+    return r
+
+
+def test_scope_flag_enforcement():
+    """FR-1, FR-5: note, nap, recall, zoom, forget, config, import each require
+    exactly one of --here or --global anywhere in argv; missing or both exits 1,
+    prints self-explaining scope error to stderr, leaves LOG.txt unchanged, and
+    creates no store in a fresh project."""
+    base = tempfile.mkdtemp(prefix="optmem-fr1-")
+    try:
+        xdg_dir = os.path.join(base, "xdg")
+        g_dir = os.path.join(base, "global")
+        repo_dir = os.path.join(base, "repo")
+        seed = os.path.join(base, "seed.txt")
+        os.makedirs(repo_dir)
+        subprocess.run(["git", "init", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "remote", "add", "origin",
+                        "git@github.com:scope/proj.git"], check=True)
+        with open(seed, "w") as f:
+            f.write("2026-01-01 seeded memory\n")
+        env = dict(os.environ, HOME=base, XDG_DATA_HOME=xdg_dir, MEMORY_DIR=g_dir)
+        r = sub(["init"], env, cwd=repo_dir)
+        check(r.returncode == 0, "fr1 setup init failed: " + r.stderr)
+        g_before = fingerprint(g_dir)
+        proj_store = os.path.join(xdg_dir, "optmem", "repo", "scope", "proj")
+
+        cases = [
+            ["note", "x"],
+            ["nap"],
+            ["recall", "x"],
+            ["zoom", "0-1"],
+            ["forget", "0-1"],
+            ["config"],
+            ["import", seed],
+        ]
+        for args in cases:
+            r_none = sub(args, env, cwd=repo_dir)
+            check(r_none.returncode == 1 and not r_none.stdout
+                  and "--here" in r_none.stderr and "--global" in r_none.stderr,
+                  "missing scope on %r should fail with scope error: %r / %r"
+                  % (args, r_none.stdout, r_none.stderr))
+            r_both = sub(["--here", "--global"] + args, env, cwd=repo_dir)
+            check(r_both.returncode == 1 and not r_both.stdout
+                  and "--here" in r_both.stderr and "--global" in r_both.stderr,
+                  "both scopes on %r should fail: %r / %r"
+                  % (args, r_both.stdout, r_both.stderr))
+            check(not os.path.exists(proj_store),
+                  "failed scope check on %r created project store" % (args,))
+            check(fingerprint(g_dir) == g_before,
+                  "failed scope check on %r modified global store" % (args,))
+
+        # Flag placement anywhere in argv (before, middle, end) for --here and --global
+        check(sub(["--here", "note", "proj zero"], env, cwd=repo_dir).returncode == 0,
+              "--here before note failed")
+        check(sub(["note", "--here", "proj one"], env, cwd=repo_dir).returncode == 0,
+              "--here after note failed")
+        check(sub(["note", "proj two", "--here"], env, cwd=repo_dir).returncode == 0,
+              "--here at end of note failed")
+        check(sub(["--global", "note", "glob zero"], env, cwd=repo_dir).returncode == 0,
+              "--global before note failed")
+        check(sub(["note", "--global", "glob one"], env, cwd=repo_dir).returncode == 0,
+              "--global after note failed")
+        check(sub(["note", "glob two", "--global"], env, cwd=repo_dir).returncode == 0,
+              "--global at end of note failed")
+
+        # Missing/both scope on live stores leaves LOG.txt unchanged
+        p_log = os.path.join(proj_store, "LOG.txt")
+        p_before = open(p_log, "rb").read()
+        g_log = os.path.join(g_dir, "LOG.txt")
+        g_log_before = open(g_log, "rb").read()
+        check(sub(["note", "must not write"], env, cwd=repo_dir).returncode == 1,
+              "unscoped note on live store accepted")
+        check(sub(["note", "--here", "--global", "must not write"], env, cwd=repo_dir).returncode == 1,
+              "dual-scoped note on live store accepted")
+        check(open(p_log, "rb").read() == p_before, "unscoped/dual note altered project LOG.txt")
+        check(open(g_log, "rb").read() == g_log_before, "unscoped/dual note altered global LOG.txt")
+
+        # recall, nap, zoom, forget, config, import each hit only the named store
+        rh = sub(["recall", "--here", "proj zero"], env, cwd=repo_dir)
+        check(rh.returncode == 0 and "proj zero" in rh.stdout,
+              "recall --here missed project note: " + rh.stdout + rh.stderr)
+        check("No match." in sub(["recall", "--here", "glob zero"], env, cwd=repo_dir).stdout,
+              "recall --here leaked global note")
+        rg = sub(["recall", "--global", "glob zero"], env, cwd=repo_dir)
+        check(rg.returncode == 0 and "glob zero" in rg.stdout,
+              "recall --global missed global note: " + rg.stdout + rg.stderr)
+        check("No match." in sub(["recall", "--global", "proj zero"], env, cwd=repo_dir).stdout,
+              "recall --global leaked project note")
+
+        check(sub(["nap", "--here", "0-1", "proj pair"], env, cwd=repo_dir).returncode == 0,
+              "nap --here failed")
+        check(sub(["nap", "0-1", "glob pair", "--global"], env, cwd=repo_dir).returncode == 0,
+              "nap --global at end failed")
+        zh = sub(["zoom", "--here", "0-1"], env, cwd=repo_dir)
+        check(zh.returncode == 0 and "proj zero" in zh.stdout and "glob zero" not in zh.stdout,
+              "zoom --here wrong content: " + zh.stdout + zh.stderr)
+        zg = sub(["zoom", "0-1", "--global"], env, cwd=repo_dir)
+        check(zg.returncode == 0 and "glob zero" in zg.stdout and "proj zero" not in zg.stdout,
+              "zoom --global wrong content: " + zg.stdout + zg.stderr)
+        check(sub(["forget", "--here", "0-1"], env, cwd=repo_dir).returncode == 0,
+              "forget --here failed")
+        check(sub(["forget", "--global", "0-1"], env, cwd=repo_dir).returncode == 0,
+              "forget --global failed")
+        check(sub(["config", "--here", "WAKE_LINES=40"], env, cwd=repo_dir).returncode == 0,
+              "config --here failed")
+        check("WAKE_LINES" in open(os.path.join(proj_store, "config")).read(),
+              "config --here did not write project config")
+        check("40" not in open(os.path.join(g_dir, "config")).read(),
+              "config --here leaked into global config")
+        check(sub(["config", "--global", "WAKE_LINES=50"], env, cwd=repo_dir).returncode == 0,
+              "config --global failed")
+        check("50" in open(os.path.join(g_dir, "config")).read(),
+              "config --global did not write global config")
+        # Future-dated import after today's notes
+        fut = os.path.join(base, "future.txt")
+        with open(fut, "w") as f:
+            f.write("2099-01-01 imported future note\n")
+        check(sub(["import", "--here", fut], env, cwd=repo_dir).returncode == 0,
+              "import --here failed")
+        check("imported future note" in sub(["recall", "--here", "imported future"], env, cwd=repo_dir).stdout,
+              "import --here did not land in project store")
+        check("No match." in sub(["recall", "--global", "imported future"], env, cwd=repo_dir).stdout,
+              "import --here leaked into global store")
+        check(sub(["import", fut, "--global"], env, cwd=repo_dir).returncode == 0,
+              "import --global failed")
+        check("imported future note" in sub(["recall", "--global", "imported future"], env, cwd=repo_dir).stdout,
+              "import --global did not land in global store")
+    finally:
+        shutil.rmtree(base)
+
+
+def test_memory_dir_global_only():
+    """FR-2, FR-3, C-1, C-2: MEMORY_DIR moves only the global memory; --here
+    uses XDG_DATA_HOME; bare wake reads both; init accepts/ignores scope flags
+    and creates MEMORY_DIR (with --global in config hint); missing MEMORY_DIR
+    fails --global without creating it while --here still creates project store."""
+    base = tempfile.mkdtemp(prefix="optmem-fr3-")
+    try:
+        xdg_dir = os.path.join(base, "xdg")
+        missing_g = os.path.join(base, "missing-global")
+        repo1 = os.path.join(base, "repo1")
+        repo2 = os.path.join(base, "repo2")
+        for rdir, origin in ((repo1, "git@github.com:fr3/one.git"),
+                             (repo2, "git@github.com:fr3/two.git")):
+            os.makedirs(rdir)
+            subprocess.run(["git", "init", "-q", rdir], check=True)
+            subprocess.run(["git", "-C", rdir, "remote", "add", "origin", origin], check=True)
+
+        env = dict(os.environ, HOME=base, XDG_DATA_HOME=xdg_dir, MEMORY_DIR=missing_g)
+
+        # C-1: missing MEMORY_DIR makes --global commands fail and create nothing
+        for args in (["wake", "--global"], ["note", "--global", "nope"], ["recall", "--global", "x"]):
+            r = sub(args, env, cwd=repo1)
+            check(r.returncode == 1 and "No memory at" in r.stderr
+                  and "--global init" in r.stderr,
+                  "missing MEMORY_DIR on %r did not fail properly: %r" % (args, r.stderr))
+            check(not os.path.exists(missing_g),
+                  "missing MEMORY_DIR was created by %r" % (args,))
+
+        # Bare wake with missing MEMORY_DIR says no global memory, does not create it, wakes project
+        bw = sub(["wake"], env, cwd=repo1)
+        check(bw.returncode == 0 and "No global memory yet" in bw.stdout
+              and "You are awake." in bw.stdout,
+              "bare wake with missing MEMORY_DIR failed: " + bw.stdout + bw.stderr)
+        check(not os.path.exists(missing_g), "bare wake created missing MEMORY_DIR")
+
+        # C-2: --here in a fresh repo creates project store under XDG_DATA_HOME even when MEMORY_DIR is missing
+        nh = sub(["note", "--here", "created despite missing MEMORY_DIR"], env, cwd=repo2)
+        check(nh.returncode == 0 and "Saved as #0." in nh.stdout,
+              "--here failed when MEMORY_DIR was missing: " + nh.stdout + nh.stderr)
+        check(not os.path.exists(missing_g), "--here created missing MEMORY_DIR")
+        p2_log = os.path.join(xdg_dir, "optmem", "repo", "fr3", "two", "LOG.txt")
+        check(os.path.exists(p2_log), "--here did not create project store under XDG_DATA_HOME")
+
+        # FR-2: init with no flag, --here, or --global always creates MEMORY_DIR and writes --global config hint
+        for idx, init_args in enumerate((["init"], ["init", "--here"], ["--here", "init"],
+                                         ["init", "--global"], ["--global", "init"])):
+            g_i = os.path.join(base, "init-g-%d" % idx)
+            xdg_i = os.path.join(base, "init-xdg-%d" % idx)
+            env_i = dict(os.environ, HOME=base, XDG_DATA_HOME=xdg_i, MEMORY_DIR=g_i)
+            ri = sub(init_args, env_i, cwd=repo1)
+            check(ri.returncode == 0 and os.path.isdir(g_i)
+                  and os.path.exists(os.path.join(g_i, "config")),
+                  "%r did not create MEMORY_DIR: %s" % (init_args, ri.stderr))
+            check(not os.path.exists(xdg_i),
+                  "%r should not create project store" % (init_args,))
+            cfg_text = open(os.path.join(g_i, "config")).read()
+            check("--global config NAME=VALUE" in cfg_text,
+                  "%r wrote unscoped config hint: %s" % (init_args, cfg_text))
+
+        # FR-3: initialized MEMORY_DIR + XDG_DATA_HOME: --global hits MEMORY_DIR, --here hits XDG, bare wake prints both
+        g_live = os.path.join(base, "live-global")
+        env_live = dict(os.environ, HOME=base, XDG_DATA_HOME=xdg_dir, MEMORY_DIR=g_live)
+        check(sub(["init"], env_live, cwd=repo2).returncode == 0, "init live-global failed")
+        check(sub(["note", "--global", "global secret in memory_dir"], env_live, cwd=repo2).returncode == 0,
+              "note --global into MEMORY_DIR failed")
+        check(sub(["note", "--here", "project fact in xdg"], env_live, cwd=repo2).returncode == 0,
+              "note --here with MEMORY_DIR set failed")
+        check("global secret in memory_dir" in open(os.path.join(g_live, "LOG.txt")).read(),
+              "--global note did not land in MEMORY_DIR")
+        check("project fact in xdg" not in open(os.path.join(g_live, "LOG.txt")).read(),
+              "--here note leaked into MEMORY_DIR")
+        check("project fact in xdg" in open(p2_log).read(),
+              "--here note did not land in XDG_DATA_HOME project store")
+
+        both = sub(["wake"], env_live, cwd=repo2)
+        check(both.returncode == 0
+              and "== Global memory:" in both.stdout
+              and "global secret in memory_dir" in both.stdout
+              and "== Project memory:" in both.stdout
+              and "project fact in xdg" in both.stdout
+              and both.stdout.index("global secret in memory_dir") < both.stdout.index("project fact in xdg")
+              and "You are awake." in both.stdout.splitlines(),
+              "bare wake with MEMORY_DIR set did not print both memories in order:\n" + both.stdout + both.stderr)
+
+        g_only = sub(["wake", "--global"], env_live, cwd=repo2)
+        check(g_only.returncode == 0
+              and "global secret in memory_dir" in g_only.stdout
+              and "project fact in xdg" not in g_only.stdout,
+              "wake --global should print only global memory:\n" + g_only.stdout)
+    finally:
+        shutil.rmtree(base)
+
+
+def test_wake_and_printed_commands():
+    """FR-2, FR-6: memo --here wake exits 1 and changes nothing; bare wake
+    prints --here on project note/nap/forget hints, keeps paging and wake-again
+    lines bare (no --here), prints --global on global hints/paging; zoom past
+    end uses bare wake for --here and --global wake for --global; printed nap
+    commands execute as printed with PATH=/usr/bin:/bin."""
+    base = tempfile.mkdtemp(prefix="optmem-fr6-")
+    try:
+        xdg_dir = os.path.join(base, "xdg")
+        g_dir = os.path.join(base, "global")
+        fresh_repo = os.path.join(base, "fresh-repo")
+        os.makedirs(fresh_repo)
+        subprocess.run(["git", "init", "-q", fresh_repo], check=True)
+        subprocess.run(["git", "-C", fresh_repo, "remote", "add", "origin",
+                        "git@github.com:fr6/demo.git"], check=True)
+        env = dict(os.environ, HOME=base, XDG_DATA_HOME=xdg_dir, MEMORY_DIR=g_dir)
+        check(sub(["init"], env, cwd=fresh_repo).returncode == 0, "fr6 init failed")
+
+        proj_store = os.path.join(xdg_dir, "optmem", "repo", "fr6", "demo")
+        # FR-6: wake never takes --here (or --here --global)
+        for bad_wake in (["--here", "wake"], ["wake", "--here"],
+                         ["--here", "--global", "wake"], ["wake", "1", "--here"]):
+            rw = sub(bad_wake, env, cwd=fresh_repo)
+            check(rw.returncode == 1 and not rw.stdout and rw.stderr.strip(),
+                  "%r should fail with usage error: %r / %r" % (bad_wake, rw.stdout, rw.stderr))
+            check(not os.path.exists(proj_store),
+                  "%r created project store" % (bad_wake,))
+
+        # Empty bare wake: global half hints --global note, project half hints --here note
+        empty_w = sub(["wake"], env, cwd=fresh_repo)
+        check(empty_w.returncode == 0
+              and "--global note" in empty_w.stdout
+              and "--here note" in empty_w.stdout,
+              "empty bare wake hints missing scopes:\n" + empty_w.stdout)
+
+        # Printed nap commands from both scopes run as printed with minimal PATH
+        bare_env = dict(env, PATH="/usr/bin:/bin")
+        sub(["note", "--here", "p0"], bare_env, cwd=fresh_repo)
+        p_asked = sub(["note", "--here", "p1"], bare_env, cwd=fresh_repo)
+        p_order = [l[5:] for l in p_asked.stdout.splitlines() if l.startswith("Run: ")]
+        check(len(p_order) == 1 and "--here nap 0-1" in p_order[0],
+              "project note did not print --here nap order: " + p_asked.stdout)
+        p_run = subprocess.run(p_order[0].replace('"<your line>"', '"p0 and p1"'),
+                               shell=True, cwd=fresh_repo, env=bare_env,
+                               capture_output=True, text=True)
+        check(p_run.returncode == 0 and "0-1 saved." in p_run.stdout,
+              "printed --here nap did not run: %r -> %s" % (p_order[0], p_run.stderr))
+
+        sub(["note", "--global", "g0"], bare_env, cwd=fresh_repo)
+        g_asked = sub(["note", "--global", "g1"], bare_env, cwd=fresh_repo)
+        g_order = [l[5:] for l in g_asked.stdout.splitlines() if l.startswith("Run: ")]
+        check(len(g_order) == 1 and "--global nap 0-1" in g_order[0],
+              "global note did not print --global nap order: " + g_asked.stdout)
+        g_run = subprocess.run(g_order[0].replace('"<your line>"', '"g0 and g1"'),
+                               shell=True, cwd=fresh_repo, env=bare_env,
+                               capture_output=True, text=True)
+        check(g_run.returncode == 0 and "0-1 saved." in g_run.stdout,
+              "printed --global nap did not run: %r -> %s" % (g_order[0], g_run.stderr))
+
+        # Trailing nap prompt in bare wake carries --here for project and runs as printed
+        sub(["note", "--here", "p2"], bare_env, cwd=fresh_repo)
+        sub(["note", "--here", "p3"], bare_env, cwd=fresh_repo)
+        tw = sub(["wake"], bare_env, cwd=fresh_repo)
+        tw_orders = [l[5:] for l in tw.stdout.splitlines() if l.startswith("Run: ")]
+        check(tw.returncode == 0 and len(tw_orders) == 1 and "--here nap 2-3" in tw_orders[0],
+              "bare wake trailing nap missing --here: " + tw.stdout)
+        tw_run = subprocess.run(tw_orders[0].replace('"<your line>"', '"p2 and p3"'),
+                                shell=True, cwd=fresh_repo, env=bare_env,
+                                capture_output=True, text=True)
+        check(tw_run.returncode == 0 and "2-3 saved." in tw_run.stdout,
+              "bare wake trailing nap order failed: %r -> %s" % (tw_orders[0], tw_run.stderr))
+        sub(["nap", "--here", "0-3", "all p"], bare_env, cwd=fresh_repo)
+
+        # Bare wake project pagination stays `memo wake 2 <T>` (NO --here!) and executes
+        sub(["config", "--here", "PART_LINES=2"], bare_env, cwd=fresh_repo)
+        pw1 = sub(["wake"], bare_env, cwd=fresh_repo)
+        page_orders = [l.split("Run: ", 1)[1] for l in pw1.stdout.splitlines()
+                       if l.startswith("Not awake yet. Run: ")]
+        check(pw1.returncode == 0 and len(page_orders) == 1
+              and re.search(r"memo wake 2 \d+$", page_orders[0])
+              and "--here" not in page_orders[0],
+              "bare wake paging line must be bare `memo wake 2 <T>`: " + pw1.stdout)
+        pw2 = subprocess.run(page_orders[0], shell=True, cwd=fresh_repo, env=bare_env,
+                             capture_output=True, text=True)
+        check(pw2.returncode == 0 and pw2.stdout.rstrip().endswith("You are awake."),
+              "bare wake paging order failed: %r -> %s" % (page_orders[0], pw2.stderr))
+        sub(["config", "--here", "PART_LINES="], bare_env, cwd=fresh_repo)
+
+        # Blocking refusal on bare wake: wake-again is bare, nap carries --here
+        sub(["config", "--here", "WAKE_LINES=2"], bare_env, cwd=fresh_repo)
+        sub(["forget", "--here", "0-1"], bare_env, cwd=fresh_repo)
+        bw_ref = sub(["wake"], bare_env, cwd=fresh_repo)
+        check(bw_ref.returncode == 1
+              and re.search(r"then run \S*memo wake again\.", bw_ref.stdout)
+              and "--here wake" not in bw_ref.stdout
+              and "--here nap 0-1" in bw_ref.stdout,
+              "bare wake refusal must keep wake bare and scope nap with --here:\n" + bw_ref.stdout)
+
+        # Blank summary on bare wake: forget carries --here
+        check(sub(["nap", "--here", "0-1", "p01"], bare_env, cwd=fresh_repo).returncode == 0,
+              "nap 0-1 rebuild failed")
+        check(sub(["nap", "--here", "2-3", "p23"], bare_env, cwd=fresh_repo).returncode == 0,
+              "nap 2-3 rebuild failed")
+        check(sub(["nap", "--here", "0-3", "all p"], bare_env, cwd=fresh_repo).returncode == 0,
+              "nap 0-3 rebuild failed")
+        with open(os.path.join(proj_store, "TREE", "2"), "r+b") as f:
+            f.write(b" " * 287 + b"\n")
+        bw_blank = sub(["wake"], bare_env, cwd=fresh_repo)
+        check(bw_blank.returncode == 1 and "--here forget 0-1" in bw_blank.stderr,
+              "bare wake blank summary must print --here forget: " + bw_blank.stderr)
+        sub(["forget", "--here", "0-1"], bare_env, cwd=fresh_repo)
+        sub(["nap", "--here", "0-1", "p01"], bare_env, cwd=fresh_repo)
+        sub(["nap", "--here", "2-3", "p23"], bare_env, cwd=fresh_repo)
+        sub(["nap", "--here", "0-3", "all p"], bare_env, cwd=fresh_repo)
+        sub(["config", "--here", "WAKE_LINES="], bare_env, cwd=fresh_repo)
+
+        # Global pagination during bare wake keeps --global wake 2 <T> and stops before project
+        sub(["note", "--global", "g2"], bare_env, cwd=fresh_repo)
+        sub(["note", "--global", "g3"], bare_env, cwd=fresh_repo)
+        sub(["nap", "--global", "2-3", "g23"], bare_env, cwd=fresh_repo)
+        sub(["nap", "--global", "0-3", "all g"], bare_env, cwd=fresh_repo)
+        sub(["config", "--global", "PART_LINES=2"], bare_env, cwd=fresh_repo)
+        gw1 = sub(["wake"], bare_env, cwd=fresh_repo)
+        g_page = [l.split("Run: ", 1)[1] for l in gw1.stdout.splitlines()
+                  if l.startswith("Not awake yet. Run: ")]
+        check(gw1.returncode == 0 and len(g_page) == 1
+              and re.search(r"memo --global wake 2 \d+$", g_page[0])
+              and "== Project memory:" not in gw1.stdout,
+              "global paging in bare wake must print --global wake 2 <T>:\n" + gw1.stdout)
+        gw2 = subprocess.run(g_page[0], shell=True, cwd=fresh_repo, env=bare_env,
+                             capture_output=True, text=True)
+        check(gw2.returncode == 0 and gw2.stdout.rstrip().endswith("You are awake."),
+              "global paging order failed: %r -> %s" % (g_page[0], gw2.stderr))
+
+        # zoom past end: --here prints bare wake, --global prints --global wake
+        zh_past = sub(["zoom", "--here", "1048576-2097151"], bare_env, cwd=fresh_repo)
+        check(zh_past.returncode == 1
+              and re.search(r"Run: \S*memo wake$", zh_past.stderr.strip())
+              and "--here wake" not in zh_past.stderr,
+              "zoom --here past end must print bare wake: " + zh_past.stderr)
+        zg_past = sub(["zoom", "--global", "1048576-2097151"], bare_env, cwd=fresh_repo)
+        check(zg_past.returncode == 1
+              and re.search(r"Run: \S*memo --global wake$", zg_past.stderr.strip()),
+              "zoom --global past end must print --global wake: " + zg_past.stderr)
+    finally:
+        shutil.rmtree(base)
+
+
+def test_help_flags():
+    """FR-8, NFR-3: -h, --help anywhere in argv and `memo help` print module
+    usage to stdout, exit 0, leave existing stores byte-identical, and create
+    no store directory in a fresh project."""
+    base = tempfile.mkdtemp(prefix="optmem-fr8-")
+    try:
+        xdg_dir = os.path.join(base, "xdg")
+        missing_g = os.path.join(base, "missing-global")
+        repo_dir = os.path.join(base, "repo")
+        os.makedirs(repo_dir)
+        subprocess.run(["git", "init", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "remote", "add", "origin",
+                        "git@github.com:fr8/helpcheck.git"], check=True)
+        env = dict(os.environ, HOME=base, XDG_DATA_HOME=xdg_dir, MEMORY_DIR=missing_g)
+
+        help_cases = [
+            ["-h"],
+            ["--help"],
+            ["help"],
+            ["note", "--help"],
+            ["note", "--here", "-h"],
+            ["--here", "--global", "--help"],
+            ["--here", "help"],
+            ["--global", "help"],
+        ]
+        for args in help_cases:
+            r = sub(args, env, cwd=repo_dir)
+            check(r.returncode == 0 and not r.stderr
+                  and "OptMem:" in r.stdout,
+                  "help invocation %r failed: rc=%d out=%r err=%r"
+                  % (args, r.returncode, r.stdout, r.stderr))
+            check(not os.path.exists(xdg_dir),
+                  "help %r created XDG store directory" % (args,))
+            check(not os.path.exists(missing_g),
+                  "help %r created MEMORY_DIR" % (args,))
+
+        # On existing stores, help leaves every byte unchanged
+        check(sub(["init"], env, cwd=repo_dir).returncode == 0, "fr8 init failed")
+        check(sub(["note", "--here", "stay intact"], env, cwd=repo_dir).returncode == 0,
+              "fr8 note --here failed")
+        check(sub(["note", "--global", "stay intact global"], env, cwd=repo_dir).returncode == 0,
+              "fr8 note --global failed")
+        proj_store = os.path.join(xdg_dir, "optmem", "repo", "fr8", "helpcheck")
+        p_fp = fingerprint(proj_store)
+        g_fp = fingerprint(missing_g)
+        for args in (["note", "--help"], ["note", "--here", "--help"],
+                     ["note", "--global", "-h"], ["--help"], ["-h"], ["help"]):
+            r = sub(args, env, cwd=repo_dir)
+            check(r.returncode == 0 and not r.stderr and "OptMem:" in r.stdout,
+                  "help %r on live store failed" % (args,))
+        check(fingerprint(proj_store) == p_fp, "help modified project store")
+        check(fingerprint(missing_g) == g_fp, "help modified global store")
+    finally:
+        shutil.rmtree(base)
+
+
+def test_exact_flag_tokens():
+    """C-3: only exact --here, --global, -h, --help tokens are flags; tokens
+    like --helpiferous, -help, --hereish, --globally, and positional `help`
+    are recorded verbatim as memory data."""
+    base = tempfile.mkdtemp(prefix="optmem-c3-")
+    try:
+        xdg_dir = os.path.join(base, "xdg")
+        repo_dir = os.path.join(base, "repo")
+        os.makedirs(repo_dir)
+        subprocess.run(["git", "init", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "remote", "add", "origin",
+                        "git@github.com:c3/tokens.git"], check=True)
+        env = dict(os.environ, HOME=base, XDG_DATA_HOME=xdg_dir)
+        env.pop("MEMORY_DIR", None)
+
+        tokens = ["--helpiferous", "-help", "--hereish", "--globally", "help"]
+        for i, tok in enumerate(tokens):
+            r = sub(["note", "--here", tok], env, cwd=repo_dir)
+            check(r.returncode == 0 and ("Saved as #%d." % i) in r.stdout,
+                  "literal token %r was not saved: rc=%d out=%r err=%r"
+                  % (tok, r.returncode, r.stdout, r.stderr))
+        rec = sub(["recall", "--here", "--helpiferous"], env, cwd=repo_dir)
+        check(rec.returncode == 0 and "#0 " in rec.stdout and "--helpiferous" in rec.stdout,
+              "--helpiferous was not recalled: " + rec.stdout + rec.stderr)
+        rec_all = sub(["recall", "--here", "help"], env, cwd=repo_dir)
+        check("#0 " in rec_all.stdout and "#1 " in rec_all.stdout and "#4 " in rec_all.stdout,
+              "literal help-like tokens missing from recall: " + rec_all.stdout)
+    finally:
+        shutil.rmtree(base)
+
+
+test_scope_flag_enforcement()
+test_memory_dir_global_only()
+test_wake_and_printed_commands()
+test_help_flags()
+test_exact_flag_tokens()
 
 # A path-local store keyed by a symlink spelling is still on disk after
 # path_slug starts resolving links. The relink script shows the move and
