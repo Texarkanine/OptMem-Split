@@ -270,6 +270,8 @@ def overrides(d):
 def config(d):
     """Apply this memory's overrides. A knob it does not set keeps the tool's
     default, so updating the tool still changes how it behaves."""
+    for k, (default, _) in KNOBS.items():
+        globals()[k] = default
     for k, v in overrides(d).items():
         globals()[k] = v  # a knob's name IS the name of the global it sets
 
@@ -967,9 +969,15 @@ COMMANDS = {"init": cmd_init, "wake": cmd_wake, "note": cmd_note,
             "forget": cmd_forget, "config": cmd_config, "import": cmd_import}
 
 
-def main():
+def main(argv=None):
+    """CLI entry point; accepts an explicit argv list for in-process callers
+    or falls back to sys.argv[1:] when invoked as a script."""
     global SCOPE_GLOBAL, ME
-    raw = sys.argv[1:]
+    ME = pretty(__file__)
+    SCOPE_GLOBAL = False
+    for k, (default, _) in KNOBS.items():
+        globals()[k] = default
+    raw = sys.argv[1:] if argv is None else list(argv)
     usage = __doc__.strip().format(memo=pretty(__file__))
     if "-h" in raw or "--help" in raw:
         print(usage)
