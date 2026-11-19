@@ -166,6 +166,13 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Insights
     - Combining SLOBAC smell remediation with a quick runtime/subprocess profile caught both assertion-quality issues and dead/redundant test work cleanly.
 
+## 2026-11-19 - POST-REFLECT SHIP & FOLLOW-UP
+
+* Work completed
+    - Pushed `txrk9.multi-store-filing` (`f17c372`) to `origin` and updated draft PR #7 body (`feat(scope)!: require --here or --global on store commands`).
+    - Filed `Texarkanine/slobac` investigation issues #39, #40, and #41 for the dead-cleanup, intra-test-redundancy, and over-heavy-harness patterns observed during rework.
+
+
 
 
 
