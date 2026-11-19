@@ -29,3 +29,14 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Insights
     - `gh` defaults to `upstream` (`VictorTaelin/OptMem`) in this checkout because of remote configuration, so `-R Texarkanine/OptMem-Split` is required when creating the issue.
 
+## 2026-11-19 - PREFLIGHT - COMPLETE
+
+* Work completed
+    - Validated the Level 2 implementation plan in `memory-bank/active/tasks.md` against `memo`, `test.py`, `memory-bank/systemPatterns.md`, `memory-bank/techContext.md`, and `.slobac/2026-11-19T14-27-58/audit.md`.
+    - Confirmed all 7 Level 2 preflight checks pass with no plan edits required; wrote `memory-bank/active/.preflight-status` with first line `PASS WITH ADVISORY`.
+* Decisions made
+    - Recorded `PASS WITH ADVISORY` with two build-precision advisories (`write_config` whitespace padding and lockstep `"fr3"`/`"fr6"`/`"fr8"` path + call-site updates) and one structural Radical Innovation advisory (immutable per-invocation `Ctx` + `main(argv=None, env=None)`).
+* Insights
+    - `memo`'s `write_config` formats active knobs as `"%-2s%-12s = %-6d # %s"` (producing `"  WAKE_LINES   = 40     # ..."`), so Finding #17 assertions should parse active config lines or use whitespace-tolerant regex rather than literal `"WAKE_LINES = 40"`.
+
+
