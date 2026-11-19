@@ -85,3 +85,15 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Insights
     - Switching `test_store_routing` to `run("zoom", store=s2)` simultaneously eliminated the duplicate `call_main` runner, made the `ME` reset check genuinely non-vacuous against `cmd_zoom`'s usage formatter (`memo:907-909`), and extended `check_printed_commands` coverage to `r1`–`r3` (+2 passing checks).
 
+## 2026-11-19 - REFLECT - COMPLETE
+
+* Work completed
+    - Created `memory-bank/active/reflection/reflection-slobac-branch-remediation.md`.
+    - Reconciled persistent memory bank files (`productContext.md`, `systemPatterns.md`, `techContext.md`): all skipped as accurate and complete.
+    - Updated `memory-bank/active/activeContext.md` to `REFLECT COMPLETE`.
+* Decisions made
+    - Deferred the immutable per-invocation `Ctx` idea to potential future work alongside [issue #8](https://github.com/Texarkanine/OptMem-Split/issues/8) rather than expanding PR #7.
+* Insights
+    - QA Pass 1's catch on `zoom 1048576-2097151` (`wake_cmd()` vs `ME`) reinforced verifying every newly written regression test against the exact mutation it claims to guard.
+
+
