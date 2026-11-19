@@ -75,3 +75,13 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Insights
     - Reusing `run()` in `test_store_routing` also exercises `check_printed_commands` on `zoom`'s `usage:` stderr output (+2 assertions).
 
+## 2026-11-19 - QA RE-RUN - COMPLETE
+
+* Work completed
+    - Re-reviewed `memo` and `test.py` (`f7c8123..HEAD`), verified all three prior QA findings were resolved cleanly in `f1340dd`, confirmed zero remaining spec-ID fossils or direct `cli.ME`/`cli.SCOPE_GLOBAL`/`DEFAULTS` mutations, verified untouched pre-existing tests (#2, #4, #6, #7, #10, #11) were not modified, confirmed GitHub issue https://github.com/Texarkanine/OptMem-Split/issues/8 is open, checked docs (`README.md`, `WINDOWS.md`, `memory-bank/*.md`), and ran `python3 -m py_compile memo test.py` plus full `python3 test.py` (`115711 passed, 0 failed`).
+    - Recorded `PASS` in `memory-bank/active/.qa-validation-status` and updated `memory-bank/active/tasks.md` and `memory-bank/active/activeContext.md`.
+* Decisions made
+    - Passed QA with zero blocking or advisory findings.
+* Insights
+    - Switching `test_store_routing` to `run("zoom", store=s2)` simultaneously eliminated the duplicate `call_main` runner, made the `ME` reset check genuinely non-vacuous against `cmd_zoom`'s usage formatter (`memo:907-909`), and extended `check_printed_commands` coverage to `r1`–`r3` (+2 passing checks).
+

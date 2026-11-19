@@ -102,11 +102,12 @@ No new technology - validation not required.
 
 ## QA Findings
 
-Result: **FAIL** — Build must rerun to fix the two blocking findings below in `test.py`.
+Result: **PASS** — Re-verified after Build rework (`f1340dd`). All prior QA findings are resolved and no blocking or advisory semantic issues remain.
 
-1. **Blocking (Completeness / Integrity) — Vacuous `ME` re-entrancy check in `test_store_routing` (`test.py:1228-1232`)**: `r3 = call_main(s2, ["--global", "zoom", "1048576-2097151"])` claims to verify that repeated `cli.main(argv)` calls do not duplicate `--global` in `ME`, but `cmd_zoom` for an out-of-range block (`memo:912-914`) prints `wake_cmd()` (`memo:201-203`), which recomputes `pretty(__file__) + (" --global" if SCOPE_GLOBAL else "")` and never reads `ME`. Deleting `ME = pretty(__file__)` from `memo.main()` leaves `r3` passing even when `cli.ME` accumulates repeated `--global` flags. Invoke a command path that formats `ME` (e.g., `zoom` with missing block ID `["--global", "zoom"]` -> `usage: %s zoom <lo>-<hi>`, or `note` with missing text) so the test fails if `ME` is not reset.
-2. **Blocking (DRY) — Duplicate in-process runner `call_main` in `test_store_routing` (`test.py:1204-1218`)**: The nested `call_main(store_dir, argv)` helper duplicates 14 lines of the existing module-level `run(*args, store=None, scope="--global")` helper (`test.py:158-182`) verbatim while bypassing `check_printed_commands()`. Replace `call_main` with `run("wake", store=s1)`, `run("wake", store=s2)`, and `run("zoom", store=s2)` so the re-entrancy test reuses `run()` and checks printed commands.
-3. **Advisory (Non-blocking) — Redundant substring check in `test_wake_and_printed_commands` (`test.py:1266`)**: `(exe + " wake") in rw.stderr` is strictly implied by `(exe + " wake --global") in rw.stderr`; checking backticked `` "`%s wake`" % exe `` would independently assert the bare-`wake` hint alongside the `--global` hint.
+1. **Prior Blocking #1 (Resolved)** — `test_store_routing` now invokes `r3 = run("zoom", store=s2)` and asserts `"--global --global" not in r3.stderr` and `("usage: %s --global zoom <lo>-<hi>" % cli.pretty(MEMO)) in r3.stderr`. `cmd_zoom`'s missing-argument usage path (`memo:907-909`) formats `ME` directly, so the check fails if `memo.main()` stops resetting `ME`.
+2. **Prior Blocking #2 (Resolved)** — The duplicate nested `call_main` helper was removed; `test_store_routing` now reuses the module-level `run()` helper, which also runs `check_printed_commands` on `r1`, `r2`, and `r3`.
+3. **Prior Advisory #3 (Resolved)** — `test_wake_and_printed_commands` now independently asserts backticked `` "`%s wake`" % exe `` and `` "`%s wake --global`" % exe `` alongside `"does not take --here"`.
+4. **Full Plan & Audit Verification (Pass)** — All 14 branch-touched SLOBAC findings (#5, #8, #9, #12–#22) are cleanly remediated with zero remaining spec-ID fossils or direct `cli.ME`/`cli.SCOPE_GLOBAL`/`DEFAULTS` mutations, untouched pre-existing tests (#2, #4, #6, #7, #10, #11) remain unchanged, GitHub issue https://github.com/Texarkanine/OptMem-Split/issues/8 is open for #1/#3, docs (`README.md`, `WINDOWS.md`, `memory-bank/*.md`) remain accurate, `py_compile` succeeds, and `python3 test.py` passes (`115711 passed, 0 failed`).
 
 ## Status
 
@@ -117,4 +118,4 @@ Result: **FAIL** — Build must rerun to fix the two blocking findings below in 
 - [x] Pre-Mortem complete
 - [x] Preflight
 - [x] Build
-- [ ] QA
+- [x] QA
