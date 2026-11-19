@@ -63,3 +63,15 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
     - Failed QA for targeted Build rework on two findings in the new `test_store_routing` re-entrancy block: (1) `r3` calls `zoom 1048576-2097151`, which prints `wake_cmd()` instead of `ME` and therefore vacuously passes even if `ME` reset is broken; (2) nested `call_main` duplicates `run()` verbatim while skipping `check_printed_commands()`.
 * Insights
     - `cmd_zoom`'s out-of-range error uses `wake_cmd()` (`memo:914`), whereas its missing-argument usage error (`memo:908-909`) uses `ME`; switching the re-entrancy check to `run("zoom", store=s2)` fixes both the vacuous `ME` oracle and the duplicate `call_main` helper in one step.
+
+## 2026-11-19 - BUILD (QA REWORK) - COMPLETE
+
+* Work completed
+    - Removed duplicate nested `call_main()` in `test_store_routing` and switched re-entrancy checks to `run("wake", store=s1)`, `run("wake", store=s2)`, and `run("zoom", store=s2)` asserting `usage: <memo> --global zoom <lo>-<hi>` (which reads `ME` directly, not `wake_cmd()`).
+    - Tightened `test_wake_and_printed_commands` `--here` rejection checks to assert backticked `` "`%s wake`" % exe `` and `` "`%s wake --global`" % exe `` independently.
+    - Verified full `python3 test.py` suite: `115711 passed, 0 failed`.
+* Decisions made
+    - Resolved both blocking QA findings and the non-blocking advisory in one clean pass.
+* Insights
+    - Reusing `run()` in `test_store_routing` also exercises `check_printed_commands` on `zoom`'s `usage:` stderr output (+2 assertions).
+

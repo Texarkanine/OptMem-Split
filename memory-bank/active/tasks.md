@@ -117,4 +117,4 @@ Result: **FAIL** — Build must rerun to fix the two blocking findings below in 
 - [x] Pre-Mortem complete
 - [x] Preflight
 - [x] Build
-- [ ] QA (FAIL — rerun `/niko-build` to fix blocking findings)
+- [ ] QA
