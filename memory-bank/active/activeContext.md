@@ -1,11 +1,14 @@
 # Active Context
 
 ## Current Task: slobac-branch-remediation (rework)
-**Phase:** COMPLEXITY-ANALYSIS - COMPLETE
+**Phase:** PLAN - COMPLETE
 
 ## What Was Done
-- Cleared stale active state for rework (`8c79c14`) and logged rework scope from [PR #7 comment #7021229465](https://github.com/Texarkanine/OptMem-Split/pull/7#issuecomment-7021229465) plus profiling of `test.py` (`8.96s` / `163` subprocesses across the 5 branch-added functions; `3,988` duplicate checks from `check_printed_commands()` inside the pre-existing `1,994`-nap loop).
-- Classified rework as Level 2 (Simple Enhancement): self-contained optimization and deduplication of branch-added tests in `test.py`, push branch, and update PR #7 title/body.
+- Completed Level 2 rework plan in `memory-bank/active/tasks.md` addressing [PR #7 comment #7021229465](https://github.com/Texarkanine/OptMem-Split/pull/7#issuecomment-7021229465):
+  - Deduplicate `check_printed_commands()` via digit-normalized `SEEN_CMD_SHAPES` (eliminating `3,988` identical nap-loop checks while keeping full site coverage).
+  - Unify in-process execution under `invoke(args, env, cwd=None)` with `run()` delegating to `invoke()`, remove unused `sub()`, and extract `make_repo(path, origin)`.
+  - Move pure argv/routing/help/token checks in the 5 branch-added functions onto `invoke()`, delete the 5 dead cleanup calls in `test_wake_and_printed_commands`, seed `s1`/`s2` in-process via `run()`, and trim redundant flag-permutation loops.
+  - Update `memory-bank/techContext.md`, then after QA passes push `txrk9.multi-store-filing` and update PR #7's body/title.
 
 ## Next Step
-- Commit complexity analysis (`chore: saving work before plan phase`) and execute Level 2 Plan Phase.
+- Commit plan (`chore: saving work before preflight phase`) and spawn Preflight subagent (`/niko-preflight`).

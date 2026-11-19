@@ -109,5 +109,16 @@ Remediate SLOBAC audit findings on tests and helpers introduced or modified on b
 * Complexity
     - Level 2 (Simple Enhancement).
 
+## 2026-11-19 - REWORK PLAN - COMPLETE
+
+* Work completed
+    - Wrote Level 2 rework plan in `memory-bank/active/tasks.md` covering `SEEN_CMD_SHAPES` deduplication in `check_printed_commands()`, unified in-process `invoke()` + `run()` delegation, `make_repo()` fixture helper, deleting 5 dead cleanup calls, in-process seeding of `s1`/`s2`, trimming redundant flag-permutation loops, syncing `memory-bank/techContext.md`, and pushing + updating PR #7 after QA PASS.
+* Decisions made
+    - Keep `check_printed_commands()` active on `invoke()`/`run()` with digit-normalized shape deduplication so every distinct printing site across `memo` stays verified once without repeating 3,988 identical checks in the 1,994-nap loop.
+    - Hold `git push` and `gh pr edit 7` until after QA PASS so only QA-verified commits are pushed.
+* Insights
+    - Profiling showed the 5 branch-added functions spent `8.96s` spawning `146` `memo` subprocesses (`~29%` of total runtime), almost all for pure argv/routing/help logic that runs identically in-process via `cli.main(argv)`.
+
+
 
 
