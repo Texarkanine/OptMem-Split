@@ -41,4 +41,16 @@ Implement [Texarkanine/OptMem-Split#5](https://github.com/Texarkanine/OptMem-Spl
     - Flagged `test.py` lines 301 and 375 (`memo wake` string/regex checks under `scope="--global"`), `test.py` line 769 (`XDG_DATA_HOME` restoration after `shutil.rmtree(xdg)`), and secondary prose mentions in `README.md`, `productContext.md`, and `techContext.md` as build advisories
     - Recorded an advisory innovation to wire a printed-command scope invariant checker directly into `test.py`'s `run()` helper so every test enforces FR-6 across all error paths and future upstream merges
 
+## 2026-11-19 - BUILD - COMPLETE
+
+* Work completed
+    - Implemented Unit 1 via TDD: isolated `test.py` upfront (`HOME`, `XDG_DATA_HOME`, `MEMORY_DIR`), routed `run()` through `cli.main()`, added `check_printed_commands()` and 5 new test suites covering FR-1, FR-2, FR-3, FR-5, FR-6, FR-8, NFR-3, NFR-5, C-1, C-2, C-3; observed red failure then implemented `global_dir()`, `wake_cmd()`, `memory_dir()`, `store()`, `cmd_wake()`, `wake_both()`, `cmd_zoom()`, and `main()` in `memo`
+    - Implemented Unit 2: updated `memo` (`__doc__` and `TEMPLATE`), `README.md`, `WINDOWS.md`, `memory-bank/systemPatterns.md`, and surgical invalidated bullets in `memory-bank/productContext.md` and `memory-bank/techContext.md`
+    - Verified `python3 -m py_compile memo test.py`, `ReadLints` (0 errors), spot-checked `memo --help` and `memo init`, and ran full `python3 test.py` (115,640 passed, 0 failed)
+* Decisions made
+    - Incorporated all Preflight advisories, including automatic FR-6 validation via `check_printed_commands()` in `test.py`
+* Insights
+    - Trailing nap prompts can follow `You are awake.` in bare `wake` output, and pagination orders start with `Not awake yet. Run: ` — both exercised end-to-end with `PATH=/usr/bin:/bin`
+
+
 
