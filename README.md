@@ -99,9 +99,9 @@ Without it you do not know who you are, or what was decided and tried.
 ### At startup: activating OptMem (mandatory)
 
 Run `~/.optmem/memo wake` before any other tool call, in every session, and
-then do exactly what it prints, to the end of its output. Do not pipe
-it through `head`, `tail`, or a pager. It reads the global memory first,
-then the memory of the project you are in.
+then do exactly what it prints, to the end of its output. Never truncate
+it: it is important memory and you need all of it. It reads the global
+memory first, then the memory of the project you are in.
 
 If you can see a prior OptMem wake in this conversation's history,
 do not run it again.
